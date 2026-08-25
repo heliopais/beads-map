@@ -16,6 +16,10 @@ _Avoid_: Workspace, project
 The locally remembered set of recent and pinned Beads repositories available for the user to switch between. It never combines their dependency graphs.
 _Avoid_: Multi-repository graph, aggregated workspace
 
+**Repository view**:
+The presentation state remembered for one Beads repository: graph viewport, selected work item, and completed-work visibility.
+_Avoid_: Global view, shared graph state
+
 **Dependency graph**:
 The directed view of blocking relationships among displayed Beads work items. Parent–child organization is not part of this graph.
 _Avoid_: Task tree, hierarchy graph
@@ -41,5 +45,5 @@ Beads Map's derived classification of a work item as Completed, In progress, Rea
 _Avoid_: Status
 
 **Graph workspace**:
-The primary Beads Map surface, combining the dependency graph, a compact execution summary, and details for the selected work item.
+The primary Beads Map surface, combining repository selection, a compact execution summary, separate epic context, the dependency graph, and details for the selected work item.
 _Avoid_: Dashboard, report
