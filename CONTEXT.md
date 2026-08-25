@@ -32,6 +32,14 @@ _Avoid_: Task, system record
 A compact representation of a non-work Beads record shown only when it participates in a blocking path.
 _Avoid_: Work item, hidden blocker
 
+**Filter context node**:
+A compact, muted work-item node retained when an active filter would otherwise hide an intermediate item and falsely break a dependency path between visible results.
+_Avoid_: Shortcut edge, system node
+
+**Unlinked work**:
+Work items with no blocking-dependency edges. They remain visible in a labeled region of the default graph rather than being omitted.
+_Avoid_: Orphaned work, hidden work
+
 **Completed work**:
 Work items closed in Beads. They remain connected in the default dependency graph but are visually de-emphasized.
 _Avoid_: Hidden work, archived work
@@ -47,3 +55,23 @@ _Avoid_: Status
 **Graph workspace**:
 The primary Beads Map surface, combining repository selection, a compact execution summary, separate epic context, the dependency graph, and details for the selected work item.
 _Avoid_: Dashboard, report
+
+**Graph search**:
+A graph-preserving locator across work-item ID, title, labels, assignee, and description. It highlights and navigates matches without removing nonmatching nodes or changing dependency topology.
+_Avoid_: Search filter, query view
+
+**Graph filter**:
+An explicit narrowing of visible work by execution state, work-item type, label, or assignee. Choices within a facet combine with OR and facets combine with AND; active filters remain visible and never create synthetic dependency edges.
+_Avoid_: Graph search, implicit filter
+
+**Path focus**:
+A reversible emphasis mode for the selected work item: all transitive upstream blockers, all transitive downstream dependents, or both. Unrelated nodes are dimmed rather than removed, preserving layout and orientation.
+_Avoid_: Graph filter, neighborhood
+
+**Scale gate**:
+An explicit choice shown when a repository exceeds the first release's supported graph envelope of 1,000 displayed nodes or 3,000 dependency edges. It reports complete snapshot counts and recommends an outstanding-work filter without silently dropping work.
+_Avoid_: Automatic truncation, hidden limit
+
+**Graph virtualization**:
+An implementation technique that may omit offscreen drawing work without changing the loaded graph's counts, search, filters, keyboard navigation, path focus, or dependency calculations.
+_Avoid_: Clustering, data omission
