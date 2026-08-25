@@ -16,6 +16,30 @@ _Avoid_: Workspace, project
 The locally remembered set of recent and pinned Beads repositories available for the user to switch between. It never combines their dependency graphs.
 _Avoid_: Multi-repository graph, aggregated workspace
 
+**Repository entry**:
+One local working copy in the repository catalog, identified by its canonical real path. A Beads project identity validates continuity when the user relocates it but does not merge distinct working copies.
+_Avoid_: Project, path alias
+
+**Beads project identity**:
+The stable identity reported by Beads for continuity checks. Different repository entries may share it while retaining separate local state.
+_Avoid_: Repository path, catalog key
+
+**Unavailable repository**:
+A repository entry whose local working copy is currently missing or unreadable. It stays in the catalog for retry, relocation, or explicit removal, but no persisted graph is presented as current.
+_Avoid_: Deleted repository, stale graph
+
+**Repository validation**:
+A read-only admission check that resolves a selected directory to a supported Beads repository and confirms its identity. It never initializes, migrates, repairs, or synchronizes Beads data.
+_Avoid_: Repository setup, automatic repair
+
+**Repository display name**:
+The repository basename shown in routine UI, extended with the shortest parent suffix needed to distinguish same-named entries. The full local path is revealed only on explicit request.
+_Avoid_: Full path, project identity
+
+**Stale graph**:
+The last successfully loaded graph retained after its repository can no longer be read safely. It remains inspectable but is clearly marked as not current.
+_Avoid_: Current graph, cached repository
+
 **Repository view**:
 The presentation state remembered for one Beads repository: graph viewport, selected work item, and completed-work visibility.
 _Avoid_: Global view, shared graph state
