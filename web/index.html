@@ -155,7 +155,7 @@
     .description { margin-top: 16px; white-space: pre-wrap; color: var(--muted); font-size: 12px; }
     .readonly { margin-top: 18px; padding: 10px; border-radius: 8px; background: var(--surface-2); color: var(--muted); font-size: 11px; }
     .empty { color: var(--muted); }
-    .error { display: none; margin: 20px; padding: 14px; border: 1px solid #c65353; border-radius: 8px; color: #c65353; background: var(--surface); }
+    .error { display: none; margin: 20px; padding: 14px; border: 1px solid #c65353; border-radius: 8px; color: #c65353; background: var(--surface); white-space: pre-wrap; }
 
     @media (max-width: 760px) {
       main { height: auto; grid-template-columns: 1fr; }
@@ -381,6 +381,16 @@
     async function loadGraph() {
       el('refresh').disabled = true;
       el('error').style.display = 'none';
+      if (location.protocol === 'file:') {
+        const appRoot = decodeURIComponent(location.pathname).replace(/\/web\/index\.html$/, '');
+        const shellPath = appRoot.replaceAll('"', '\\"');
+        el('repository').textContent = 'Server not running';
+        el('counts').textContent = 'Start Beads Map to load the graph';
+        el('workspace').hidden = true;
+        el('error').textContent = `This page needs the local Beads Map server.\n\nRun this in Terminal:\ncd "${shellPath}"\npython3 beads_map.py .\n\nThen open http://127.0.0.1:8765`;
+        el('error').style.display = 'block';
+        return;
+      }
       try {
         const response = await fetch('/api/graph', { cache: 'no-store' });
         const payload = await response.json();
