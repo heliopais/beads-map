@@ -17,5 +17,7 @@ so no path entry is required.
 
 The POC runs `bd --readonly -C <repository> export`, renders blocking
 dependencies from left to right, and shows issue details when a node is
-selected. It does not write to Beads. The catalog stores paths only in the
-operating system's user configuration directory; it never stores issue data.
+selected. The status chips show or hide Completed, In progress, Ready, Blocked,
+and Deferred work. It does not write to Beads. The catalog stores paths only in
+the operating system's user configuration directory; it never stores issue
+data.

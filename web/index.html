@@ -86,8 +86,26 @@
       color: var(--muted);
       font-size: 12px;
     }
-    .legend { display: flex; flex-wrap: wrap; gap: 12px; margin-left: auto; }
-    .legend span { display: inline-flex; align-items: center; gap: 5px; }
+    .legend { display: flex; flex-wrap: wrap; gap: 6px; margin-left: auto; }
+    .legend button {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      padding: 4px 7px;
+      color: inherit;
+      background: transparent;
+      border: 1px solid transparent;
+      border-radius: 999px;
+      cursor: pointer;
+    }
+    .legend button[aria-pressed="true"] {
+      background: color-mix(in srgb, currentColor 10%, transparent);
+      border-color: color-mix(in srgb, currentColor 45%, transparent);
+    }
+    .legend button[aria-pressed="false"] { opacity: .42; }
+    .legend button:hover { border-color: currentColor; }
+    .legend .show-all { color: var(--muted); }
+    .legend .show-all:disabled { cursor: default; opacity: .42; }
     .dot { width: 8px; height: 8px; border-radius: 50%; background: currentColor; }
     .completed { color: var(--completed); }
     .in-progress { color: var(--in-progress); }
@@ -215,12 +233,13 @@
 
   <section class="summary" aria-label="Graph summary">
     <strong id="counts">Loading graph…</strong>
-    <div class="legend" aria-label="Status legend">
-      <span class="completed"><i class="dot"></i>Completed</span>
-      <span class="in-progress"><i class="dot"></i>In progress</span>
-      <span class="ready"><i class="dot"></i>Ready</span>
-      <span class="blocked"><i class="dot"></i>Blocked</span>
-      <span class="deferred"><i class="dot"></i>Deferred</span>
+    <div class="legend" aria-label="Status filters">
+      <button class="completed" type="button" data-state="completed" aria-pressed="true"><i class="dot"></i>Completed</button>
+      <button class="in-progress" type="button" data-state="in-progress" aria-pressed="true"><i class="dot"></i>In progress</button>
+      <button class="ready" type="button" data-state="ready" aria-pressed="true"><i class="dot"></i>Ready</button>
+      <button class="blocked" type="button" data-state="blocked" aria-pressed="true"><i class="dot"></i>Blocked</button>
+      <button class="deferred" type="button" data-state="deferred" aria-pressed="true"><i class="dot"></i>Deferred</button>
+      <button class="show-all" id="status-show-all" type="button" disabled>Show all</button>
     </div>
   </section>
 
@@ -268,6 +287,8 @@
     const Y_GAP = 36;
     const MIN_ZOOM = 0.35;
     const MAX_ZOOM = 2;
+    const ALL_STATES = ['completed', 'in-progress', 'ready', 'blocked', 'deferred'];
+    const visibleStates = new Set(ALL_STATES);
     let graphData = null;
     let selectedId = null;
     let currentRepository = null;
@@ -329,6 +350,26 @@
       el('details').hidden = true;
       el('details-empty').hidden = false;
       document.querySelectorAll('.node').forEach(node => node.classList.remove('selected'));
+    }
+
+    function updateStatusControls() {
+      document.querySelectorAll('[data-state]').forEach(button => {
+        button.setAttribute('aria-pressed', String(visibleStates.has(button.dataset.state)));
+      });
+      el('status-show-all').disabled = visibleStates.size === ALL_STATES.length;
+    }
+
+    function toggleStatus(state) {
+      if (visibleStates.has(state)) visibleStates.delete(state);
+      else visibleStates.add(state);
+      updateStatusControls();
+      if (graphData) renderGraph(graphData);
+    }
+
+    function showAllStatuses() {
+      ALL_STATES.forEach(state => visibleStates.add(state));
+      updateStatusControls();
+      if (graphData) renderGraph(graphData);
     }
 
     function rankNodes(nodes, edges) {
@@ -405,9 +446,12 @@
       graphData = data;
       const svg = el('graph');
       svg.replaceChildren();
-      const ranks = rankNodes(data.nodes, data.edges);
+      const visibleNodes = data.nodes.filter(node => visibleStates.has(node.state));
+      const visibleIds = new Set(visibleNodes.map(node => node.id));
+      const visibleEdges = data.edges.filter(edge => visibleIds.has(edge.source) && visibleIds.has(edge.target));
+      const ranks = rankNodes(visibleNodes, visibleEdges);
       const columns = new Map();
-      data.nodes
+      visibleNodes
         .slice()
         .sort((a, b) => a.title.localeCompare(b.title))
         .forEach(node => {
@@ -438,7 +482,7 @@
       defs.append(marker);
       svg.append(defs);
 
-      data.edges.forEach(edge => {
+      visibleEdges.forEach(edge => {
         const source = positions.get(edge.source);
         const target = positions.get(edge.target);
         if (!source || !target) return;
@@ -454,7 +498,7 @@
         }));
       });
 
-      data.nodes.forEach(node => {
+      visibleNodes.forEach(node => {
         const position = positions.get(node.id);
         const group = svgElement('g', {
           class: `node ${node.state} ${node.type === 'epic' ? 'epic' : ''}`,
@@ -491,8 +535,11 @@
 
       el('repository-select').value = data.path;
       el('repository-select').title = data.path;
-      el('counts').textContent = `${data.nodes.length} issues · ${data.edges.length} dependencies`;
-      if (selectedId && data.nodes.some(node => node.id === selectedId)) selectNode(selectedId);
+      const issueCount = visibleNodes.length === data.nodes.length
+        ? `${data.nodes.length} issues`
+        : `${visibleNodes.length} of ${data.nodes.length} issues`;
+      el('counts').textContent = `${issueCount} · ${visibleEdges.length} dependencies`;
+      if (selectedId && visibleIds.has(selectedId)) selectNode(selectedId);
       else if (selectedId) clearDetails();
     }
 
@@ -634,6 +681,10 @@
     el('repository-select').addEventListener('change', event => chooseRepository(event.target.value));
     el('repository-add').addEventListener('click', addRepository);
     el('repository-remove').addEventListener('click', removeRepository);
+    document.querySelectorAll('[data-state]').forEach(button => {
+      button.addEventListener('click', () => toggleStatus(button.dataset.state));
+    });
+    el('status-show-all').addEventListener('click', showAllStatuses);
     el('zoom-out').addEventListener('click', () => setZoom(zoom - 0.15));
     el('zoom-in').addEventListener('click', () => setZoom(zoom + 0.15));
     el('zoom-fit').addEventListener('click', fitGraph);
