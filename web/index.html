@@ -91,12 +91,28 @@
     .graph-panel { min-width: 0; padding: 14px; overflow: hidden; }
     .graph-head {
       display: flex;
+      align-items: center;
       justify-content: space-between;
       margin: 0 2px 9px;
       color: var(--muted);
       font-size: 12px;
     }
     .graph-head strong { color: var(--text); }
+    .graph-tools, .zoom-controls { display: flex; align-items: center; gap: 6px; }
+    .zoom-controls { margin-left: 8px; }
+    .zoom-controls button {
+      min-width: 30px;
+      height: 28px;
+      padding: 0 8px;
+      color: var(--text);
+      background: var(--surface-2);
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      cursor: pointer;
+    }
+    .zoom-controls button:hover { border-color: var(--focus); }
+    .zoom-controls button:disabled { cursor: default; opacity: .45; }
+    .zoom-level { min-width: 40px; text-align: center; font-variant-numeric: tabular-nums; }
     .scroller {
       height: calc(100% - 28px);
       overflow: auto;
@@ -108,7 +124,7 @@
         linear-gradient(to bottom, color-mix(in srgb, var(--line) 25%, transparent) 1px, transparent 1px);
       background-size: 24px 24px;
     }
-    svg { display: block; min-width: 100%; min-height: 100%; }
+    svg { display: block; }
     .edge { fill: none; stroke: var(--line); stroke-width: 1.7; }
     .node { cursor: pointer; outline: none; }
     .node rect {
@@ -187,8 +203,19 @@
   <div class="error" id="error" role="alert"></div>
   <main id="workspace">
     <section class="graph-panel" aria-label="Dependency graph">
-      <div class="graph-head"><strong>Dependency graph</strong><span>Blockers → outcomes</span></div>
-      <div class="scroller"><svg id="graph" role="img" aria-label="Beads dependency graph"></svg></div>
+      <div class="graph-head">
+        <strong>Dependency graph</strong>
+        <div class="graph-tools">
+          <span>Blockers → outcomes</span>
+          <div class="zoom-controls" aria-label="Graph zoom controls">
+            <button id="zoom-out" type="button" aria-label="Zoom out" title="Zoom out">−</button>
+            <span class="zoom-level" id="zoom-level" aria-live="polite">100%</span>
+            <button id="zoom-in" type="button" aria-label="Zoom in" title="Zoom in">+</button>
+            <button id="zoom-fit" type="button">Fit</button>
+          </div>
+        </div>
+      </div>
+      <div class="scroller" id="graph-scroller"><svg id="graph" role="img" aria-label="Beads dependency graph"></svg></div>
     </section>
     <aside aria-live="polite">
       <div id="details-empty" class="empty">Select a work item to see its details.</div>
@@ -215,8 +242,12 @@
     const NODE_H = 82;
     const X_GAP = 105;
     const Y_GAP = 36;
+    const MIN_ZOOM = 0.35;
+    const MAX_ZOOM = 2;
     let graphData = null;
     let selectedId = null;
+    let graphSize = { width: 760, height: 520 };
+    let zoom = 1;
 
     const el = id => document.getElementById(id);
     const svgElement = (name, attributes = {}) => {
@@ -260,6 +291,34 @@
       return lines.filter(Boolean);
     }
 
+    function setZoom(nextZoom, preserveCenter = true) {
+      const scroller = el('graph-scroller');
+      const contentCenter = {
+        x: (scroller.scrollLeft + scroller.clientWidth / 2) / zoom,
+        y: (scroller.scrollTop + scroller.clientHeight / 2) / zoom,
+      };
+      zoom = Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, nextZoom));
+      el('graph').setAttribute('width', Math.round(graphSize.width * zoom));
+      el('graph').setAttribute('height', Math.round(graphSize.height * zoom));
+      el('zoom-level').textContent = `${Math.round(zoom * 100)}%`;
+      el('zoom-out').disabled = zoom <= MIN_ZOOM;
+      el('zoom-in').disabled = zoom >= MAX_ZOOM;
+      if (preserveCenter) {
+        requestAnimationFrame(() => {
+          scroller.scrollLeft = contentCenter.x * zoom - scroller.clientWidth / 2;
+          scroller.scrollTop = contentCenter.y * zoom - scroller.clientHeight / 2;
+        });
+      }
+    }
+
+    function fitGraph() {
+      const scroller = el('graph-scroller');
+      const widthScale = Math.max(1, scroller.clientWidth - 24) / graphSize.width;
+      const heightScale = Math.max(1, scroller.clientHeight - 24) / graphSize.height;
+      setZoom(Math.min(1, widthScale, heightScale), false);
+      scroller.scrollTo({ left: 0, top: 0 });
+    }
+
     function renderGraph(data) {
       graphData = data;
       const svg = el('graph');
@@ -287,9 +346,9 @@
       const maxRank = Math.max(0, ...ranks.values());
       const width = Math.max(760, 96 + (maxRank + 1) * NODE_W + maxRank * X_GAP);
       const height = Math.max(520, 96 + maxRows * NODE_H + (maxRows - 1) * Y_GAP);
+      graphSize = { width, height };
       svg.setAttribute('viewBox', `0 0 ${width} ${height}`);
-      svg.setAttribute('width', width);
-      svg.setAttribute('height', height);
+      setZoom(zoom, false);
 
       const defs = svgElement('defs');
       const marker = svgElement('marker', { id: 'arrow', markerWidth: 8, markerHeight: 8, refX: 7, refY: 4, orient: 'auto' });
@@ -406,6 +465,9 @@
     }
 
     el('refresh').addEventListener('click', loadGraph);
+    el('zoom-out').addEventListener('click', () => setZoom(zoom - 0.15));
+    el('zoom-in').addEventListener('click', () => setZoom(zoom + 0.15));
+    el('zoom-fit').addEventListener('click', fitGraph);
     loadGraph();
   </script>
 </body>
