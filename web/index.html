@@ -1,0 +1,402 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Beads Map</title>
+  <style>
+    :root {
+      color-scheme: light dark;
+      --bg: light-dark(#f4f5f7, #101317);
+      --surface: light-dark(#ffffff, #191d22);
+      --surface-2: light-dark(#eef1f4, #23282f);
+      --text: light-dark(#18202a, #edf1f5);
+      --muted: light-dark(#687482, #aab4bf);
+      --line: light-dark(#cbd3dc, #46505b);
+      --focus: light-dark(#285df5, #8eacff);
+      --completed: #7b8794;
+      --in-progress: #4386d8;
+      --ready: #2a9464;
+      --blocked: #db8b3c;
+      --deferred: #9a6cc7;
+      --epic: #8a58c7;
+    }
+
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      color: var(--text);
+      background: var(--bg);
+      font: 14px/1.45 Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+    button { font: inherit; }
+    header {
+      min-height: 62px;
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      padding: 11px 16px;
+      background: var(--surface);
+      border-bottom: 1px solid var(--line);
+    }
+    .logo {
+      width: 30px;
+      height: 30px;
+      display: grid;
+      place-items: center;
+      border-radius: 8px;
+      color: var(--surface);
+      background: var(--text);
+      font-size: 11px;
+      font-weight: 700;
+    }
+    .brand strong { display: block; font-size: 15px; }
+    .brand span { color: var(--muted); font-size: 12px; }
+    .spacer { flex: 1; }
+    .refresh {
+      color: var(--text);
+      background: var(--surface-2);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 7px 11px;
+      cursor: pointer;
+    }
+    .refresh:hover { border-color: var(--focus); }
+    .summary {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 12px 20px;
+      align-items: center;
+      padding: 9px 16px;
+      background: var(--surface);
+      border-bottom: 1px solid var(--line);
+      color: var(--muted);
+      font-size: 12px;
+    }
+    .legend { display: flex; flex-wrap: wrap; gap: 12px; margin-left: auto; }
+    .legend span { display: inline-flex; align-items: center; gap: 5px; }
+    .dot { width: 8px; height: 8px; border-radius: 50%; background: currentColor; }
+    .completed { color: var(--completed); }
+    .in-progress { color: var(--in-progress); }
+    .ready { color: var(--ready); }
+    .blocked { color: var(--blocked); }
+    .deferred { color: var(--deferred); }
+
+    main {
+      height: calc(100vh - 103px);
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) 320px;
+    }
+    .graph-panel { min-width: 0; padding: 14px; overflow: hidden; }
+    .graph-head {
+      display: flex;
+      justify-content: space-between;
+      margin: 0 2px 9px;
+      color: var(--muted);
+      font-size: 12px;
+    }
+    .graph-head strong { color: var(--text); }
+    .scroller {
+      height: calc(100% - 28px);
+      overflow: auto;
+      border: 1px solid var(--line);
+      border-radius: 11px;
+      background-color: var(--surface);
+      background-image:
+        linear-gradient(to right, color-mix(in srgb, var(--line) 25%, transparent) 1px, transparent 1px),
+        linear-gradient(to bottom, color-mix(in srgb, var(--line) 25%, transparent) 1px, transparent 1px);
+      background-size: 24px 24px;
+    }
+    svg { display: block; min-width: 100%; min-height: 100%; }
+    .edge { fill: none; stroke: var(--line); stroke-width: 1.7; }
+    .node { cursor: pointer; outline: none; }
+    .node rect {
+      fill: var(--surface);
+      stroke: var(--line);
+      stroke-width: 1.2;
+      filter: drop-shadow(0 5px 7px rgba(0,0,0,.12));
+    }
+    .node .accent { stroke-width: 5; }
+    .node.completed .accent { stroke: var(--completed); }
+    .node.in-progress .accent { stroke: var(--in-progress); }
+    .node.ready .accent { stroke: var(--ready); }
+    .node.blocked .accent { stroke: var(--blocked); }
+    .node.deferred .accent { stroke: var(--deferred); }
+    .node.epic rect:first-child { stroke: var(--epic); stroke-width: 2; }
+    .node.completed { opacity: .64; }
+    .node:hover rect:first-child,
+    .node:focus rect:first-child,
+    .node.selected rect:first-child { stroke: var(--focus); stroke-width: 2.5; }
+    .node-title { fill: var(--text); font-size: 13px; font-weight: 600; }
+    .node-meta { fill: var(--muted); font-size: 10px; letter-spacing: .06em; text-transform: uppercase; }
+
+    aside {
+      padding: 18px;
+      overflow: auto;
+      background: var(--surface);
+      border-left: 1px solid var(--line);
+    }
+    .eyebrow { color: var(--muted); font-size: 11px; letter-spacing: .08em; text-transform: uppercase; }
+    aside h2 { margin: 8px 0 10px; font-size: 20px; line-height: 1.25; }
+    .state {
+      display: inline-block;
+      margin-bottom: 18px;
+      padding: 4px 8px;
+      border-radius: 999px;
+      background: var(--surface-2);
+      font-size: 12px;
+      font-weight: 650;
+    }
+    dl { margin: 0; display: grid; gap: 10px; }
+    dl div { padding-bottom: 9px; border-bottom: 1px solid var(--line); }
+    dt { color: var(--muted); font-size: 11px; }
+    dd { margin: 2px 0 0; overflow-wrap: anywhere; }
+    .description { margin-top: 16px; white-space: pre-wrap; color: var(--muted); font-size: 12px; }
+    .readonly { margin-top: 18px; padding: 10px; border-radius: 8px; background: var(--surface-2); color: var(--muted); font-size: 11px; }
+    .empty { color: var(--muted); }
+    .error { display: none; margin: 20px; padding: 14px; border: 1px solid #c65353; border-radius: 8px; color: #c65353; background: var(--surface); }
+
+    @media (max-width: 760px) {
+      main { height: auto; grid-template-columns: 1fr; }
+      .graph-panel { height: 65vh; }
+      aside { border-left: 0; border-top: 1px solid var(--line); }
+      .legend { width: 100%; margin-left: 0; }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="logo" aria-hidden="true">BM</div>
+    <div class="brand"><strong>Beads Map</strong><span id="repository">Loading repository…</span></div>
+    <div class="spacer"></div>
+    <button class="refresh" id="refresh" type="button">Refresh</button>
+  </header>
+
+  <section class="summary" aria-label="Graph summary">
+    <strong id="counts">Loading graph…</strong>
+    <div class="legend" aria-label="Status legend">
+      <span class="completed"><i class="dot"></i>Completed</span>
+      <span class="in-progress"><i class="dot"></i>In progress</span>
+      <span class="ready"><i class="dot"></i>Ready</span>
+      <span class="blocked"><i class="dot"></i>Blocked</span>
+      <span class="deferred"><i class="dot"></i>Deferred</span>
+    </div>
+  </section>
+
+  <div class="error" id="error" role="alert"></div>
+  <main id="workspace">
+    <section class="graph-panel" aria-label="Dependency graph">
+      <div class="graph-head"><strong>Dependency graph</strong><span>Blockers → outcomes</span></div>
+      <div class="scroller"><svg id="graph" role="img" aria-label="Beads dependency graph"></svg></div>
+    </section>
+    <aside aria-live="polite">
+      <div id="details-empty" class="empty">Select a work item to see its details.</div>
+      <div id="details" hidden>
+        <div class="eyebrow"><span id="detail-type"></span> · <span id="detail-id"></span></div>
+        <h2 id="detail-title"></h2>
+        <div class="state" id="detail-state"></div>
+        <dl>
+          <div><dt>Raw status</dt><dd id="detail-raw"></dd></div>
+          <div><dt>Blocked by</dt><dd id="detail-blockers"></dd></div>
+          <div><dt>Blocks</dt><dd id="detail-dependents"></dd></div>
+          <div><dt>Labels</dt><dd id="detail-labels"></dd></div>
+          <div><dt>Assignee</dt><dd id="detail-assignee"></dd></div>
+        </dl>
+        <div class="description" id="detail-description"></div>
+      </div>
+      <div class="readonly">Read-only POC · Make changes with Beads outside this app, then refresh.</div>
+    </aside>
+  </main>
+
+  <script>
+    const SVG = 'http://www.w3.org/2000/svg';
+    const NODE_W = 240;
+    const NODE_H = 82;
+    const X_GAP = 105;
+    const Y_GAP = 36;
+    let graphData = null;
+    let selectedId = null;
+
+    const el = id => document.getElementById(id);
+    const svgElement = (name, attributes = {}) => {
+      const node = document.createElementNS(SVG, name);
+      Object.entries(attributes).forEach(([key, value]) => node.setAttribute(key, value));
+      return node;
+    };
+
+    function rankNodes(nodes, edges) {
+      const rank = new Map(nodes.map(node => [node.id, 0]));
+      const incoming = new Map(nodes.map(node => [node.id, 0]));
+      const outgoing = new Map(nodes.map(node => [node.id, []]));
+      edges.forEach(edge => {
+        incoming.set(edge.target, (incoming.get(edge.target) || 0) + 1);
+        outgoing.get(edge.source)?.push(edge.target);
+      });
+      const queue = nodes.filter(node => incoming.get(node.id) === 0).map(node => node.id);
+      while (queue.length) {
+        const source = queue.shift();
+        for (const target of outgoing.get(source) || []) {
+          rank.set(target, Math.max(rank.get(target) || 0, (rank.get(source) || 0) + 1));
+          incoming.set(target, incoming.get(target) - 1);
+          if (incoming.get(target) === 0) queue.push(target);
+        }
+      }
+      return rank;
+    }
+
+    function wrapTitle(title, max = 31) {
+      const words = title.split(/\s+/);
+      const lines = ['', ''];
+      for (const word of words) {
+        const index = lines[0].length < max ? 0 : 1;
+        const candidate = `${lines[index]} ${word}`.trim();
+        if (index === 1 && candidate.length > max) {
+          lines[1] = `${lines[1].slice(0, Math.max(0, max - 1)).trim()}…`;
+          break;
+        }
+        lines[index] = candidate;
+      }
+      return lines.filter(Boolean);
+    }
+
+    function renderGraph(data) {
+      graphData = data;
+      const svg = el('graph');
+      svg.replaceChildren();
+      const ranks = rankNodes(data.nodes, data.edges);
+      const columns = new Map();
+      data.nodes
+        .slice()
+        .sort((a, b) => a.title.localeCompare(b.title))
+        .forEach(node => {
+          const column = ranks.get(node.id) || 0;
+          if (!columns.has(column)) columns.set(column, []);
+          columns.get(column).push(node);
+        });
+
+      const positions = new Map();
+      let maxRows = 1;
+      for (const [column, nodes] of columns) {
+        maxRows = Math.max(maxRows, nodes.length);
+        nodes.forEach((node, row) => positions.set(node.id, {
+          x: 48 + column * (NODE_W + X_GAP),
+          y: 48 + row * (NODE_H + Y_GAP),
+        }));
+      }
+      const maxRank = Math.max(0, ...ranks.values());
+      const width = Math.max(760, 96 + (maxRank + 1) * NODE_W + maxRank * X_GAP);
+      const height = Math.max(520, 96 + maxRows * NODE_H + (maxRows - 1) * Y_GAP);
+      svg.setAttribute('viewBox', `0 0 ${width} ${height}`);
+      svg.setAttribute('width', width);
+      svg.setAttribute('height', height);
+
+      const defs = svgElement('defs');
+      const marker = svgElement('marker', { id: 'arrow', markerWidth: 8, markerHeight: 8, refX: 7, refY: 4, orient: 'auto' });
+      marker.append(svgElement('path', { d: 'M0,0 L8,4 L0,8 Z', fill: 'var(--line)' }));
+      defs.append(marker);
+      svg.append(defs);
+
+      data.edges.forEach(edge => {
+        const source = positions.get(edge.source);
+        const target = positions.get(edge.target);
+        if (!source || !target) return;
+        const startX = source.x + NODE_W;
+        const startY = source.y + NODE_H / 2;
+        const endX = target.x;
+        const endY = target.y + NODE_H / 2;
+        const bend = Math.max(38, (endX - startX) / 2);
+        svg.append(svgElement('path', {
+          class: 'edge',
+          d: `M${startX} ${startY} C${startX + bend} ${startY}, ${endX - bend} ${endY}, ${endX} ${endY}`,
+          'marker-end': 'url(#arrow)',
+        }));
+      });
+
+      data.nodes.forEach(node => {
+        const position = positions.get(node.id);
+        const group = svgElement('g', {
+          class: `node ${node.state} ${node.type === 'epic' ? 'epic' : ''}`,
+          transform: `translate(${position.x} ${position.y})`,
+          tabindex: '0',
+          role: 'button',
+          'aria-label': `${node.title}, ${node.state}`,
+        });
+        group.dataset.id = node.id;
+        group.append(svgElement('rect', { width: NODE_W, height: NODE_H, rx: 9 }));
+        group.append(svgElement('line', { class: 'accent', x1: 3, y1: 10, x2: 3, y2: NODE_H - 10 }));
+
+        const meta = svgElement('text', { class: 'node-meta', x: 15, y: 20 });
+        meta.textContent = `${node.type} · ${node.state.replace('-', ' ')}`;
+        group.append(meta);
+
+        const title = svgElement('text', { class: 'node-title', x: 15, y: 43 });
+        wrapTitle(node.title).forEach((line, index) => {
+          const tspan = svgElement('tspan', { x: 15, dy: index === 0 ? 0 : 17 });
+          tspan.textContent = line;
+          title.append(tspan);
+        });
+        group.append(title);
+        const activate = () => selectNode(node.id);
+        group.addEventListener('click', activate);
+        group.addEventListener('keydown', event => {
+          if (event.key === 'Enter' || event.key === ' ') {
+            event.preventDefault();
+            activate();
+          }
+        });
+        svg.append(group);
+      });
+
+      el('repository').textContent = data.repository;
+      el('counts').textContent = `${data.nodes.length} issues · ${data.edges.length} dependencies`;
+      if (selectedId && data.nodes.some(node => node.id === selectedId)) selectNode(selectedId);
+    }
+
+    function namesFor(ids) {
+      const byId = new Map(graphData.nodes.map(node => [node.id, node.title]));
+      return ids.length ? ids.map(id => byId.get(id) || id).join(', ') : 'None';
+    }
+
+    function selectNode(id) {
+      const node = graphData.nodes.find(candidate => candidate.id === id);
+      if (!node) return;
+      selectedId = id;
+      document.querySelectorAll('.node').forEach(element => element.classList.toggle('selected', element.dataset.id === id));
+      el('details-empty').hidden = true;
+      el('details').hidden = false;
+      el('detail-type').textContent = node.type;
+      el('detail-id').textContent = node.id;
+      el('detail-title').textContent = node.title;
+      el('detail-state').textContent = node.state.replace('-', ' ');
+      el('detail-state').className = `state ${node.state}`;
+      el('detail-raw').textContent = node.rawStatus;
+      el('detail-blockers').textContent = namesFor(node.blockers);
+      el('detail-dependents').textContent = namesFor(node.dependents);
+      el('detail-labels').textContent = node.labels.length ? node.labels.join(', ') : 'None';
+      el('detail-assignee').textContent = node.assignee || 'Unassigned';
+      el('detail-description').textContent = node.description;
+    }
+
+    async function loadGraph() {
+      el('refresh').disabled = true;
+      el('error').style.display = 'none';
+      try {
+        const response = await fetch('/api/graph', { cache: 'no-store' });
+        const payload = await response.json();
+        if (!response.ok) throw new Error(payload.error || 'Could not load graph');
+        renderGraph(payload);
+      } catch (error) {
+        el('workspace').hidden = true;
+        el('error').textContent = error.message;
+        el('error').style.display = 'block';
+      } finally {
+        el('refresh').disabled = false;
+      }
+    }
+
+    el('refresh').addEventListener('click', loadGraph);
+    loadGraph();
+  </script>
+</body>
+</html>
