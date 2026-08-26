@@ -146,6 +146,8 @@
     .scroller {
       height: calc(100% - 28px);
       overflow: auto;
+      cursor: grab;
+      user-select: none;
       border: 1px solid var(--line);
       border-radius: 11px;
       background-color: var(--surface);
@@ -154,6 +156,10 @@
         linear-gradient(to bottom, color-mix(in srgb, var(--line) 25%, transparent) 1px, transparent 1px);
       background-size: 24px 24px;
     }
+    .scroller.dragging { cursor: grabbing; }
+    .scroller.zooming { cursor: ns-resize; }
+    .scroller.dragging .node,
+    .scroller.zooming .node { cursor: inherit; }
     svg { display: block; }
     .edge { fill: none; stroke: var(--line); stroke-width: 1.7; }
     .node { cursor: pointer; outline: none; }
@@ -249,7 +255,7 @@
       <div class="graph-head">
         <strong>Dependency graph</strong>
         <div class="graph-tools">
-          <span>Blockers → outcomes</span>
+          <span>Blockers → outcomes · Drag to pan · ⌘-drag vertically to zoom</span>
           <div class="zoom-controls" aria-label="Graph zoom controls">
             <button id="zoom-out" type="button" aria-label="Zoom out" title="Zoom out">−</button>
             <span class="zoom-level" id="zoom-level" aria-live="polite">100%</span>
@@ -407,11 +413,15 @@
       return lines.filter(Boolean);
     }
 
-    function setZoom(nextZoom, preserveCenter = true) {
+    function setZoom(nextZoom, preservePosition = true, anchor = null) {
       const scroller = el('graph-scroller');
-      const contentCenter = {
-        x: (scroller.scrollLeft + scroller.clientWidth / 2) / zoom,
-        y: (scroller.scrollTop + scroller.clientHeight / 2) / zoom,
+      const anchorPoint = anchor || {
+        x: scroller.clientWidth / 2,
+        y: scroller.clientHeight / 2,
+      };
+      const contentPoint = {
+        x: (scroller.scrollLeft + anchorPoint.x) / zoom,
+        y: (scroller.scrollTop + anchorPoint.y) / zoom,
       };
       zoom = Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, nextZoom));
       el('graph').setAttribute('width', Math.round(graphSize.width * zoom));
@@ -419,11 +429,9 @@
       el('zoom-level').textContent = `${Math.round(zoom * 100)}%`;
       el('zoom-out').disabled = zoom <= MIN_ZOOM;
       el('zoom-in').disabled = zoom >= MAX_ZOOM;
-      if (preserveCenter) {
-        requestAnimationFrame(() => {
-          scroller.scrollLeft = contentCenter.x * zoom - scroller.clientWidth / 2;
-          scroller.scrollTop = contentCenter.y * zoom - scroller.clientHeight / 2;
-        });
+      if (preservePosition) {
+        scroller.scrollLeft = contentPoint.x * zoom - anchorPoint.x;
+        scroller.scrollTop = contentPoint.y * zoom - anchorPoint.y;
       }
     }
 
@@ -433,6 +441,58 @@
       const heightScale = Math.max(1, scroller.clientHeight - 24) / graphSize.height;
       setZoom(Math.min(1, widthScale, heightScale), false);
       scroller.scrollTo({ left: 0, top: 0 });
+    }
+
+    let canvasGesture = null;
+
+    function beginCanvasGesture(event) {
+      if (event.button !== 0 || event.target.closest?.('.node')) return;
+      const scroller = el('graph-scroller');
+      const bounds = scroller.getBoundingClientRect();
+      canvasGesture = {
+        pointerId: event.pointerId,
+        mode: event.metaKey ? 'zoom' : 'pan',
+        startX: event.clientX,
+        startY: event.clientY,
+        startScrollLeft: scroller.scrollLeft,
+        startScrollTop: scroller.scrollTop,
+        startZoom: zoom,
+        anchor: { x: event.clientX - bounds.left, y: event.clientY - bounds.top },
+        active: false,
+      };
+      if (typeof event.pointerId === 'number') scroller.setPointerCapture(event.pointerId);
+      event.preventDefault();
+    }
+
+    function moveCanvasGesture(event) {
+      if (!canvasGesture || event.pointerId !== canvasGesture.pointerId) return;
+      const deltaX = event.clientX - canvasGesture.startX;
+      const deltaY = event.clientY - canvasGesture.startY;
+      if (!canvasGesture.active && Math.hypot(deltaX, deltaY) < 3) return;
+
+      const scroller = el('graph-scroller');
+      if (!canvasGesture.active) {
+        canvasGesture.active = true;
+        scroller.classList.add(canvasGesture.mode === 'zoom' ? 'zooming' : 'dragging');
+      }
+      if (canvasGesture.mode === 'zoom') {
+        const nextZoom = canvasGesture.startZoom * Math.exp(-deltaY / 300);
+        setZoom(nextZoom, true, canvasGesture.anchor);
+      } else {
+        scroller.scrollLeft = canvasGesture.startScrollLeft - deltaX;
+        scroller.scrollTop = canvasGesture.startScrollTop - deltaY;
+      }
+      event.preventDefault();
+    }
+
+    function endCanvasGesture(event) {
+      if (!canvasGesture || event.pointerId !== canvasGesture.pointerId) return;
+      const scroller = el('graph-scroller');
+      scroller.classList.remove('dragging', 'zooming');
+      if (typeof event.pointerId === 'number' && scroller.hasPointerCapture(event.pointerId)) {
+        scroller.releasePointerCapture(event.pointerId);
+      }
+      canvasGesture = null;
     }
 
     function renderGraph(data) {
@@ -688,6 +748,11 @@
     el('zoom-out').addEventListener('click', () => setZoom(zoom - 0.15));
     el('zoom-in').addEventListener('click', () => setZoom(zoom + 0.15));
     el('zoom-fit').addEventListener('click', fitGraph);
+    el('graph-scroller').addEventListener('pointerdown', beginCanvasGesture);
+    el('graph-scroller').addEventListener('pointermove', moveCanvasGesture);
+    el('graph-scroller').addEventListener('pointerup', endCanvasGesture);
+    el('graph-scroller').addEventListener('pointercancel', endCanvasGesture);
+    el('graph-scroller').addEventListener('dragstart', event => event.preventDefault());
     initialize();
   </script>
 </body>
