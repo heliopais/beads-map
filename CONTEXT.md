@@ -8,6 +8,14 @@ Beads Map is the product context for visually understanding work recorded in Bea
 A read-only visual companion for understanding work and dependency relationships recorded in Beads.
 _Avoid_: Beads editor, issue manager
 
+**Beads Map command**:
+The user-facing `beads-map` CLI entry point that opens the local Beads Map application for remembered or supplied repositories. The Python script invocation remains a development and fallback entry point rather than the product command.
+_Avoid_: `python3 beads_map.py`, desktop launcher
+
+**Beads Map session**:
+The lifetime of one foreground Beads Map command and its loopback-only local server. It normally opens the default browser and ends explicitly with `Ctrl-C`; browser tabs do not own its lifetime, and it is not a daemon or background service.
+_Avoid_: Daemon, tray application, hosted session
+
 **Beads repository**:
 The single repository whose recorded work Beads Map displays at one time.
 _Avoid_: Workspace, project
