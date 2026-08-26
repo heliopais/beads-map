@@ -52,6 +52,31 @@ def resolve_repository(value: str) -> Path:
     return repository
 
 
+def pick_repository() -> Path | None:
+    if sys.platform != "darwin":
+        raise BeadsError("The native folder picker is currently available on macOS.")
+    script = 'POSIX path of (choose folder with prompt "Choose a Beads repository")'
+    try:
+        result = subprocess.run(
+            ["osascript", "-e", script],
+            capture_output=True,
+            text=True,
+            timeout=600,
+            check=False,
+        )
+    except FileNotFoundError as error:
+        raise BeadsError("Could not open the macOS folder picker.") from error
+    except subprocess.TimeoutExpired as error:
+        raise BeadsError("The folder picker timed out.") from error
+
+    if result.returncode != 0:
+        message = result.stderr.strip() or result.stdout.strip()
+        if "(-128)" in message or "User canceled" in message:
+            return None
+        raise BeadsError(message or "Could not choose a repository folder.")
+    return resolve_repository(result.stdout.strip())
+
+
 class RepositoryCatalog:
     def __init__(self, path: Path):
         self.path = path
@@ -266,6 +291,21 @@ class AppHandler(BaseHTTPRequestHandler):
 
     def do_POST(self) -> None:  # noqa: N802 - BaseHTTPRequestHandler API
         path = urlsplit(self.path).path
+        if path == "/api/repositories/pick":
+            if self.headers.get("X-Beads-Map") != "1":
+                self._send_json(403, {"error": "Folder picker request was not authorized."})
+                return
+            try:
+                repository = pick_repository()
+                if repository is None:
+                    self._send_json(200, {"cancelled": True})
+                    return
+                graph = normalize_graph(repository, export_issues(repository))
+                self.catalog.add(repository)
+                self._send_json(200, {"catalog": self.catalog.payload(), "graph": graph})
+            except (BeadsError, OSError) as error:
+                self._send_json(400, {"error": str(error)})
+            return
         try:
             payload = self._read_json()
             repository = resolve_repository(str(payload.get("path") or ""))

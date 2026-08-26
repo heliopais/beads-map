@@ -205,7 +205,7 @@
         <select class="repository-select" id="repository-select" aria-label="Repository">
           <option>Loading repositories…</option>
         </select>
-        <button class="header-button" id="repository-add" type="button">Add</button>
+        <button class="header-button" id="repository-add" type="button">Add…</button>
         <button class="header-button" id="repository-remove" type="button">Remove</button>
       </div>
     </div>
@@ -567,16 +567,14 @@
     }
 
     async function addRepository() {
-      const path = window.prompt('Absolute path to a local Beads repository:');
-      if (!path?.trim()) return;
       setBusy(true);
       el('error').style.display = 'none';
       try {
-        const payload = await requestJSON('/api/repositories', {
+        const payload = await requestJSON('/api/repositories/pick', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ path: path.trim() }),
+          headers: { 'X-Beads-Map': '1' },
         });
+        if (payload.cancelled) return;
         renderCatalog(payload.catalog);
         el('workspace').hidden = false;
         renderGraph(payload.graph);
