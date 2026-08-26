@@ -76,6 +76,10 @@ _Avoid_: Open tasks
 Beads Map's derived classification of a work item as Completed, In progress, Ready, Blocked, or Deferred. It answers how work can move, while raw Beads status remains supporting detail.
 _Avoid_: Status
 
+**Epic roll-up**:
+An informational `completed / total` count over an epic's direct human-facing child work items. Deferred children remain incomplete, system records are excluded, and the count never overrides the epic's own Beads status; epics without children have no roll-up.
+_Avoid_: Progress percentage, estimate roll-up, derived epic status
+
 **Graph workspace**:
 The primary Beads Map surface, combining repository selection, a compact execution summary, separate epic context, the dependency graph, and details for the selected work item.
 _Avoid_: Dashboard, report
