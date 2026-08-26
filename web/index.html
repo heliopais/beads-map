@@ -289,8 +289,8 @@
     const SVG = 'http://www.w3.org/2000/svg';
     const NODE_W = 240;
     const NODE_H = 82;
-    const X_GAP = 105;
-    const Y_GAP = 36;
+    const X_GAP = 180;
+    const Y_GAP = 52;
     const MIN_ZOOM = 0.35;
     const MAX_ZOOM = 2;
     const ALL_STATES = ['completed', 'in-progress', 'ready', 'blocked', 'deferred'];
@@ -396,6 +396,83 @@
         }
       }
       return rank;
+    }
+
+    function orderColumns(nodes, edges, ranks) {
+      const columns = new Map();
+      nodes
+        .slice()
+        .sort((a, b) => a.title.localeCompare(b.title))
+        .forEach(node => {
+          const column = ranks.get(node.id) || 0;
+          if (!columns.has(column)) columns.set(column, []);
+          columns.get(column).push(node);
+        });
+
+      const incoming = new Map(nodes.map(node => [node.id, []]));
+      const outgoing = new Map(nodes.map(node => [node.id, []]));
+      edges.forEach(edge => {
+        incoming.get(edge.target)?.push(edge.source);
+        outgoing.get(edge.source)?.push(edge.target);
+      });
+
+      const normalizedPositions = () => {
+        const positions = new Map();
+        for (const columnNodes of columns.values()) {
+          const denominator = Math.max(1, columnNodes.length - 1);
+          columnNodes.forEach((node, index) => positions.set(node.id, index / denominator));
+        }
+        return positions;
+      };
+
+      const reorder = (column, neighbors) => {
+        const columnNodes = columns.get(column);
+        if (!columnNodes?.length) return;
+        const positions = normalizedPositions();
+        const scored = columnNodes.map((node, index) => {
+          const values = (neighbors.get(node.id) || [])
+            .map(id => positions.get(id))
+            .filter(value => value !== undefined)
+            .sort((a, b) => a - b);
+          if (!values.length) return { node, index, score: null, mean: null };
+          const middle = Math.floor(values.length / 2);
+          const score = values.length % 2
+            ? values[middle]
+            : (values[middle - 1] + values[middle]) / 2;
+          const mean = values.reduce((sum, value) => sum + value, 0) / values.length;
+          return { node, index, score, mean };
+        });
+        scored.sort((a, b) => {
+          if (a.score === null && b.score !== null) return 1;
+          if (a.score !== null && b.score === null) return -1;
+          if (a.score !== null && b.score !== null) {
+            return a.score - b.score || a.mean - b.mean || a.index - b.index;
+          }
+          return a.index - b.index;
+        });
+        columns.set(column, scored.map(item => item.node));
+      };
+
+      const maxRank = Math.max(0, ...ranks.values());
+      for (let pass = 0; pass < 10; pass += 1) {
+        for (let column = 1; column <= maxRank; column += 1) reorder(column, incoming);
+        for (let column = maxRank - 1; column >= 0; column -= 1) reorder(column, outgoing);
+      }
+      return columns;
+    }
+
+    function routedEdgePath(startX, startY, laneX, endX, endY) {
+      if (Math.abs(endY - startY) < 1) return `M${startX} ${startY} H${endX}`;
+      const direction = Math.sign(endY - startY);
+      const radius = Math.max(0, Math.min(12, Math.abs(endY - startY) / 2, (laneX - startX) / 2));
+      return [
+        `M${startX} ${startY}`,
+        `H${laneX - radius}`,
+        `Q${laneX} ${startY} ${laneX} ${startY + direction * radius}`,
+        `V${endY - direction * radius}`,
+        `Q${laneX} ${endY} ${laneX + radius} ${endY}`,
+        `H${endX}`,
+      ].join(' ');
     }
 
     function wrapTitle(title, max = 31) {
@@ -510,15 +587,7 @@
       const visibleIds = new Set(visibleNodes.map(node => node.id));
       const visibleEdges = data.edges.filter(edge => visibleIds.has(edge.source) && visibleIds.has(edge.target));
       const ranks = rankNodes(visibleNodes, visibleEdges);
-      const columns = new Map();
-      visibleNodes
-        .slice()
-        .sort((a, b) => a.title.localeCompare(b.title))
-        .forEach(node => {
-          const column = ranks.get(node.id) || 0;
-          if (!columns.has(column)) columns.set(column, []);
-          columns.get(column).push(node);
-        });
+      const columns = orderColumns(visibleNodes, visibleEdges, ranks);
 
       const positions = new Map();
       let maxRows = 1;
@@ -542,6 +611,29 @@
       defs.append(marker);
       svg.append(defs);
 
+      const edgesByTargetColumn = new Map();
+      visibleEdges.forEach(edge => {
+        const column = ranks.get(edge.target) || 0;
+        if (!edgesByTargetColumn.has(column)) edgesByTargetColumn.set(column, []);
+        edgesByTargetColumn.get(column).push(edge);
+      });
+      const laneByEdge = new Map();
+      for (const edges of edgesByTargetColumn.values()) {
+        edges.sort((a, b) => {
+          const targetDifference = positions.get(a.target).y - positions.get(b.target).y;
+          return targetDifference || positions.get(a.source).y - positions.get(b.source).y;
+        });
+        edges.forEach((edge, index) => {
+          const target = positions.get(edge.target);
+          const gutterLeft = target.x - X_GAP;
+          const gutterPadding = 22;
+          const usableWidth = X_GAP - gutterPadding * 2;
+          laneByEdge.set(edge, Math.round(
+            gutterLeft + gutterPadding + usableWidth * (index + 1) / (edges.length + 1),
+          ));
+        });
+      }
+
       visibleEdges.forEach(edge => {
         const source = positions.get(edge.source);
         const target = positions.get(edge.target);
@@ -550,10 +642,9 @@
         const startY = source.y + NODE_H / 2;
         const endX = target.x;
         const endY = target.y + NODE_H / 2;
-        const bend = Math.max(38, (endX - startX) / 2);
         svg.append(svgElement('path', {
           class: 'edge',
-          d: `M${startX} ${startY} C${startX + bend} ${startY}, ${endX - bend} ${endY}, ${endX} ${endY}`,
+          d: routedEdgePath(startX, startY, laneByEdge.get(edge), endX, endY),
           'marker-end': 'url(#arrow)',
         }));
       });

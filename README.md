@@ -16,8 +16,9 @@ repositories from the header; on macOS, Add opens the native folder chooser,
 so no path entry is required.
 
 The POC runs `bd --readonly -C <repository> export`, renders blocking
-dependencies from left to right, and shows issue details when a node is
-selected. The status chips show or hide Completed, In progress, Ready, Blocked,
+dependencies from left to right with crossing-aware task ordering and routed
+edge gutters, and shows issue details when a node is selected. The status chips
+show or hide Completed, In progress, Ready, Blocked,
 and Deferred work. Drag empty canvas space to pan, or `Cmd`-drag vertically to
 zoom around the pointer. It does not write to Beads. The catalog stores paths
 only in the operating system's user configuration directory; it never stores
