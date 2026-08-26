@@ -51,10 +51,21 @@
       font-size: 11px;
       font-weight: 700;
     }
-    .brand strong { display: block; font-size: 15px; }
-    .brand span { color: var(--muted); font-size: 12px; }
+    .brand { display: flex; align-items: center; gap: 12px; min-width: 0; }
+    .brand strong { flex: 0 0 auto; font-size: 15px; }
+    .repository-controls { display: flex; align-items: center; gap: 6px; min-width: 0; }
+    .repository-select {
+      width: min(280px, 34vw);
+      height: 34px;
+      color: var(--text);
+      background: var(--surface-2);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 0 28px 0 9px;
+      font: inherit;
+    }
     .spacer { flex: 1; }
-    .refresh {
+    .header-button {
       color: var(--text);
       background: var(--surface-2);
       border: 1px solid var(--line);
@@ -62,7 +73,8 @@
       padding: 7px 11px;
       cursor: pointer;
     }
-    .refresh:hover { border-color: var(--focus); }
+    .header-button:hover { border-color: var(--focus); }
+    .header-button:disabled { cursor: default; opacity: .45; }
     .summary {
       display: flex;
       flex-wrap: wrap;
@@ -174,6 +186,9 @@
     .error { display: none; margin: 20px; padding: 14px; border: 1px solid #c65353; border-radius: 8px; color: #c65353; background: var(--surface); white-space: pre-wrap; }
 
     @media (max-width: 760px) {
+      header { flex-wrap: wrap; }
+      .brand { width: calc(100% - 44px); }
+      .repository-select { width: min(100%, 240px); }
       main { height: auto; grid-template-columns: 1fr; }
       .graph-panel { height: 65vh; }
       aside { border-left: 0; border-top: 1px solid var(--line); }
@@ -184,9 +199,18 @@
 <body>
   <header>
     <div class="logo" aria-hidden="true">BM</div>
-    <div class="brand"><strong>Beads Map</strong><span id="repository">Loading repository…</span></div>
+    <div class="brand">
+      <strong>Beads Map</strong>
+      <div class="repository-controls">
+        <select class="repository-select" id="repository-select" aria-label="Repository">
+          <option>Loading repositories…</option>
+        </select>
+        <button class="header-button" id="repository-add" type="button">Add</button>
+        <button class="header-button" id="repository-remove" type="button">Remove</button>
+      </div>
+    </div>
     <div class="spacer"></div>
-    <button class="refresh" id="refresh" type="button">Refresh</button>
+    <button class="header-button" id="refresh" type="button">Refresh</button>
   </header>
 
   <section class="summary" aria-label="Graph summary">
@@ -246,6 +270,7 @@
     const MAX_ZOOM = 2;
     let graphData = null;
     let selectedId = null;
+    let currentRepository = null;
     let graphSize = { width: 760, height: 520 };
     let zoom = 1;
 
@@ -255,6 +280,56 @@
       Object.entries(attributes).forEach(([key, value]) => node.setAttribute(key, value));
       return node;
     };
+
+    async function requestJSON(url, options = {}) {
+      const response = await fetch(url, { cache: 'no-store', ...options });
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload.error || 'Request failed');
+      return payload;
+    }
+
+    function renderCatalog(catalog) {
+      const select = el('repository-select');
+      select.replaceChildren();
+      if (!catalog.repositories.length) {
+        const option = document.createElement('option');
+        option.textContent = 'No repositories yet';
+        option.value = '';
+        select.append(option);
+      } else {
+        catalog.repositories.forEach(repository => {
+          const option = document.createElement('option');
+          option.value = repository.path;
+          option.textContent = repository.name;
+          option.title = repository.path;
+          select.append(option);
+        });
+        select.value = catalog.selected || catalog.repositories[0].path;
+      }
+      select.title = select.value;
+      el('repository-remove').disabled = !select.value;
+    }
+
+    function setBusy(busy) {
+      const select = el('repository-select');
+      select.disabled = busy || !select.value;
+      el('repository-add').disabled = busy;
+      el('repository-remove').disabled = busy || !select.value;
+      el('refresh').disabled = busy || !select.value;
+    }
+
+    function showError(error, keepGraph = false) {
+      if (!keepGraph) el('workspace').hidden = true;
+      el('error').textContent = error.message;
+      el('error').style.display = 'block';
+    }
+
+    function clearDetails() {
+      selectedId = null;
+      el('details').hidden = true;
+      el('details-empty').hidden = false;
+      document.querySelectorAll('.node').forEach(node => node.classList.remove('selected'));
+    }
 
     function rankNodes(nodes, edges) {
       const rank = new Map(nodes.map(node => [node.id, 0]));
@@ -320,6 +395,13 @@
     }
 
     function renderGraph(data) {
+      const repositoryChanged = currentRepository !== null && currentRepository !== data.path;
+      if (repositoryChanged) {
+        clearDetails();
+        zoom = 1;
+        el('graph-scroller').scrollTo({ left: 0, top: 0 });
+      }
+      currentRepository = data.path;
       graphData = data;
       const svg = el('graph');
       svg.replaceChildren();
@@ -407,9 +489,11 @@
         svg.append(group);
       });
 
-      el('repository').textContent = data.repository;
+      el('repository-select').value = data.path;
+      el('repository-select').title = data.path;
       el('counts').textContent = `${data.nodes.length} issues · ${data.edges.length} dependencies`;
       if (selectedId && data.nodes.some(node => node.id === selectedId)) selectNode(selectedId);
+      else if (selectedId) clearDetails();
     }
 
     function namesFor(ids) {
@@ -438,12 +522,12 @@
     }
 
     async function loadGraph() {
-      el('refresh').disabled = true;
+      setBusy(true);
       el('error').style.display = 'none';
       if (location.protocol === 'file:') {
         const appRoot = decodeURIComponent(location.pathname).replace(/\/web\/index\.html$/, '');
         const shellPath = appRoot.replaceAll('"', '\\"');
-        el('repository').textContent = 'Server not running';
+        el('repository-select').replaceChildren(new Option('Server not running', ''));
         el('counts').textContent = 'Start Beads Map to load the graph';
         el('workspace').hidden = true;
         el('error').textContent = `This page needs the local Beads Map server.\n\nRun this in Terminal:\ncd "${shellPath}"\npython3 beads_map.py .\n\nThen open http://127.0.0.1:8765`;
@@ -451,24 +535,111 @@
         return;
       }
       try {
-        const response = await fetch('/api/graph', { cache: 'no-store' });
-        const payload = await response.json();
-        if (!response.ok) throw new Error(payload.error || 'Could not load graph');
+        const payload = await requestJSON('/api/graph');
+        el('workspace').hidden = false;
         renderGraph(payload);
       } catch (error) {
-        el('workspace').hidden = true;
-        el('error').textContent = error.message;
-        el('error').style.display = 'block';
+        showError(error, Boolean(graphData));
       } finally {
-        el('refresh').disabled = false;
+        setBusy(false);
+      }
+    }
+
+    async function chooseRepository(path) {
+      if (!path || path === currentRepository) return;
+      setBusy(true);
+      el('error').style.display = 'none';
+      try {
+        const payload = await requestJSON('/api/repositories/select', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ path }),
+        });
+        renderCatalog(payload.catalog);
+        el('workspace').hidden = false;
+        renderGraph(payload.graph);
+      } catch (error) {
+        el('repository-select').value = currentRepository || '';
+        showError(error, Boolean(graphData));
+      } finally {
+        setBusy(false);
+      }
+    }
+
+    async function addRepository() {
+      const path = window.prompt('Absolute path to a local Beads repository:');
+      if (!path?.trim()) return;
+      setBusy(true);
+      el('error').style.display = 'none';
+      try {
+        const payload = await requestJSON('/api/repositories', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ path: path.trim() }),
+        });
+        renderCatalog(payload.catalog);
+        el('workspace').hidden = false;
+        renderGraph(payload.graph);
+      } catch (error) {
+        showError(error, Boolean(graphData));
+      } finally {
+        setBusy(false);
+      }
+    }
+
+    async function removeRepository() {
+      const select = el('repository-select');
+      const path = select.value;
+      if (!path) return;
+      const name = select.options[select.selectedIndex]?.textContent || path;
+      if (!window.confirm(`Remove ${name} from Beads Map?`)) return;
+      setBusy(true);
+      el('error').style.display = 'none';
+      try {
+        const catalog = await requestJSON('/api/repositories', {
+          method: 'DELETE',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ path }),
+        });
+        renderCatalog(catalog);
+        currentRepository = null;
+        graphData = null;
+        clearDetails();
+        if (catalog.selected) await loadGraph();
+        else {
+          el('graph').replaceChildren();
+          el('workspace').hidden = true;
+          el('counts').textContent = 'Add a repository to load a graph';
+        }
+      } catch (error) {
+        showError(error, Boolean(graphData));
+      } finally {
+        setBusy(false);
+      }
+    }
+
+    async function initialize() {
+      if (location.protocol === 'file:') {
+        await loadGraph();
+        return;
+      }
+      try {
+        renderCatalog(await requestJSON('/api/repositories'));
+        await loadGraph();
+      } catch (error) {
+        showError(error);
+        setBusy(false);
       }
     }
 
     el('refresh').addEventListener('click', loadGraph);
+    el('repository-select').addEventListener('change', event => chooseRepository(event.target.value));
+    el('repository-add').addEventListener('click', addRepository);
+    el('repository-remove').addEventListener('click', removeRepository);
     el('zoom-out').addEventListener('click', () => setZoom(zoom - 0.15));
     el('zoom-in').addEventListener('click', () => setZoom(zoom + 0.15));
     el('zoom-fit').addEventListener('click', fitGraph);
-    loadGraph();
+    initialize();
   </script>
 </body>
 </html>
