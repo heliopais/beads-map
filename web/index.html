@@ -183,6 +183,9 @@
     .edge.blocking { stroke: var(--line); }
     .edge.follow-on { stroke: var(--epic); stroke-dasharray: 8 6; opacity: .78; }
     .edge.hierarchy { stroke: var(--muted); stroke-dasharray: 2 6; opacity: .58; }
+    .edge.context-muted { opacity: .1; }
+    .edge.context-upstream { stroke: var(--blocked); stroke-width: 3; opacity: 1; }
+    .edge.context-downstream { stroke: var(--ready); stroke-width: 3; opacity: 1; }
     .node { cursor: pointer; outline: none; }
     .node rect {
       fill: var(--surface);
@@ -198,10 +201,14 @@
     .node.deferred .accent { stroke: var(--deferred); }
     .node.epic rect:first-child { stroke: var(--epic); stroke-width: 2; }
     .node.completed { opacity: .64; }
+    .node.context-muted { opacity: .28; }
+    .node.context-upstream, .node.context-downstream { opacity: 1; }
     .node:hover rect:first-child,
-    .node:focus rect:first-child,
-    .node.selected rect:first-child { stroke: var(--focus); stroke-width: 2.5; }
+    .node:focus rect:first-child { stroke: var(--focus); stroke-width: 2.5; }
     .node.search-match rect:first-child { stroke: var(--search); stroke-width: 2.3; }
+    .node.context-upstream rect:first-child { stroke: var(--blocked); stroke-width: 2.6; }
+    .node.context-downstream rect:first-child { stroke: var(--ready); stroke-width: 2.6; }
+    .node.selected rect:first-child,
     .node.search-current rect:first-child { stroke: var(--focus); stroke-width: 3.2; }
     .node-title { fill: var(--text); font-size: 13px; font-weight: 600; }
     .node-meta { fill: var(--muted); font-size: 10px; letter-spacing: .06em; text-transform: uppercase; }
@@ -228,6 +235,9 @@
     dt { color: var(--muted); font-size: 11px; }
     dd { margin: 2px 0 0; overflow-wrap: anywhere; }
     .description { margin-top: 16px; white-space: pre-wrap; color: var(--muted); font-size: 12px; }
+    .selection-context { margin: -8px 0 16px; color: var(--muted); font-size: 11px; }
+    .selection-context .upstream { color: var(--blocked); }
+    .selection-context .downstream { color: var(--ready); }
     .readonly { margin-top: 18px; padding: 10px; border-radius: 8px; background: var(--surface-2); color: var(--muted); font-size: 11px; }
     .empty { color: var(--muted); }
     .error { display: none; margin: 20px; padding: 14px; border: 1px solid #c65353; border-radius: 8px; color: #c65353; background: var(--surface); white-space: pre-wrap; }
@@ -305,6 +315,9 @@
         <div class="eyebrow"><span id="detail-type"></span> · <span id="detail-id"></span></div>
         <h2 id="detail-title"></h2>
         <div class="state" id="detail-state"></div>
+        <div class="selection-context" id="selection-context" hidden>
+          <span class="upstream">Upstream</span> · <span class="downstream">Downstream</span> · Escape to clear
+        </div>
         <dl>
           <div><dt>Raw status</dt><dd id="detail-raw"></dd></div>
           <div><dt>Blocked by</dt><dd id="detail-blockers"></dd></div>
@@ -497,11 +510,50 @@
       scheduleViewSave();
     }
 
+    function applyRelationshipContext() {
+      const upstream = new Set();
+      const downstream = new Set();
+      if (selectedId && graphData) {
+        graphData.edges.forEach(edge => {
+          if (edge.target === selectedId) upstream.add(edge.source);
+          if (edge.source === selectedId) downstream.add(edge.target);
+        });
+      }
+      document.querySelectorAll('.edge').forEach(edge => {
+        const isUpstream = Boolean(selectedId) && edge.dataset.target === selectedId;
+        const isDownstream = Boolean(selectedId) && edge.dataset.source === selectedId;
+        edge.classList.toggle('context-upstream', isUpstream);
+        edge.classList.toggle('context-downstream', isDownstream);
+        edge.classList.toggle('context-muted', Boolean(selectedId) && !isUpstream && !isDownstream);
+        const marker = isUpstream
+          ? 'context-upstream'
+          : isDownstream ? 'context-downstream' : edge.dataset.kind;
+        edge.setAttribute('marker-end', `url(#arrow-${marker})`);
+      });
+      document.querySelectorAll('.node').forEach(node => {
+        const id = node.dataset.id;
+        const isUpstream = upstream.has(id);
+        const isDownstream = downstream.has(id);
+        node.classList.toggle('context-upstream', isUpstream);
+        node.classList.toggle('context-downstream', isDownstream);
+        node.classList.toggle(
+          'context-muted',
+          Boolean(selectedId) && id !== selectedId && !isUpstream && !isDownstream,
+        );
+        const relation = isUpstream
+          ? isDownstream ? ', directly upstream and downstream of selection' : ', directly upstream of selection'
+          : isDownstream ? ', directly downstream of selection' : '';
+        node.setAttribute('aria-label', `${node.dataset.baseLabel}${relation}`);
+      });
+      el('selection-context').hidden = !selectedId;
+    }
+
     function clearDetails() {
       selectedId = null;
       el('details').hidden = true;
       el('details-empty').hidden = false;
       document.querySelectorAll('.node').forEach(node => node.classList.remove('selected'));
+      applyRelationshipContext();
     }
 
     function updateStatusControls() {
@@ -772,6 +824,8 @@
         blocking: 'var(--line)',
         'follow-on': 'var(--epic)',
         hierarchy: 'var(--muted)',
+        'context-upstream': 'var(--blocked)',
+        'context-downstream': 'var(--ready)',
       };
       Object.entries(markerColors).forEach(([kind, color]) => {
         const marker = svgElement('marker', { id: `arrow-${kind}`, markerWidth: 8, markerHeight: 8, refX: 7, refY: 4, orient: 'auto' });
@@ -815,17 +869,22 @@
           class: `edge ${edge.kind}`,
           d: routedEdgePath(startX, startY, laneByEdge.get(edge), endX, endY),
           'marker-end': `url(#arrow-${edge.kind})`,
+          'data-source': edge.source,
+          'data-target': edge.target,
+          'data-kind': edge.kind,
         }));
       });
 
       visibleNodes.forEach(node => {
         const position = positions.get(node.id);
+        const baseLabel = `${node.title}, ${node.state}`;
         const group = svgElement('g', {
           class: `node ${node.state} ${node.type === 'epic' ? 'epic' : ''}`,
           transform: `translate(${position.x} ${position.y})`,
           tabindex: '0',
           role: 'button',
-          'aria-label': `${node.title}, ${node.state}`,
+          'aria-label': baseLabel,
+          'data-base-label': baseLabel,
         });
         group.dataset.id = node.id;
         group.append(svgElement('rect', { width: NODE_W, height: NODE_H, rx: 9 }));
@@ -843,7 +902,8 @@
         });
         group.append(title);
         const activate = () => {
-          selectNode(node.id);
+          if (selectedId === node.id) clearDetails();
+          else selectNode(node.id);
           scheduleViewSave();
         };
         group.addEventListener('click', activate);
@@ -890,6 +950,7 @@
       el('detail-labels').textContent = node.labels.length ? node.labels.join(', ') : 'None';
       el('detail-assignee').textContent = node.assignee || 'Unassigned';
       el('detail-description').textContent = node.description;
+      applyRelationshipContext();
     }
 
     async function loadGraph({ background = false } = {}) {
@@ -1018,7 +1079,12 @@
         event.preventDefault();
         navigateSearch(event.shiftKey ? -1 : 1);
       } else if (event.key === 'Escape') {
-        clearGraphSearch();
+        event.stopPropagation();
+        if (el('graph-search').value) clearGraphSearch();
+        else if (selectedId) {
+          clearDetails();
+          scheduleViewSave();
+        }
       }
     });
     el('search-previous').addEventListener('click', () => navigateSearch(-1));
@@ -1028,6 +1094,9 @@
         event.preventDefault();
         el('graph-search').focus();
         el('graph-search').select();
+      } else if (event.key === 'Escape' && selectedId) {
+        clearDetails();
+        scheduleViewSave();
       }
     });
     document.querySelectorAll('[data-state]').forEach(button => {
