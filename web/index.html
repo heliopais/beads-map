@@ -161,7 +161,10 @@
     .scroller.dragging .node,
     .scroller.zooming .node { cursor: inherit; }
     svg { display: block; }
-    .edge { fill: none; stroke: var(--line); stroke-width: 1.7; }
+    .edge { fill: none; stroke-width: 1.7; }
+    .edge.blocking { stroke: var(--line); }
+    .edge.follow-on { stroke: var(--epic); stroke-dasharray: 8 6; opacity: .78; }
+    .edge.hierarchy { stroke: var(--muted); stroke-dasharray: 2 6; opacity: .58; }
     .node { cursor: pointer; outline: none; }
     .node rect {
       fill: var(--surface);
@@ -255,7 +258,7 @@
       <div class="graph-head">
         <strong>Dependency graph</strong>
         <div class="graph-tools">
-          <span>Blockers → outcomes · Drag to pan · ⌘-drag vertically to zoom</span>
+          <span>Left → right · Solid prerequisite · Dashed follow-on · Dotted hierarchy</span>
           <div class="zoom-controls" aria-label="Graph zoom controls">
             <button id="zoom-out" type="button" aria-label="Zoom out" title="Zoom out">−</button>
             <span class="zoom-level" id="zoom-level" aria-live="polite">100%</span>
@@ -606,9 +609,16 @@
       setZoom(zoom, false);
 
       const defs = svgElement('defs');
-      const marker = svgElement('marker', { id: 'arrow', markerWidth: 8, markerHeight: 8, refX: 7, refY: 4, orient: 'auto' });
-      marker.append(svgElement('path', { d: 'M0,0 L8,4 L0,8 Z', fill: 'var(--line)' }));
-      defs.append(marker);
+      const markerColors = {
+        blocking: 'var(--line)',
+        'follow-on': 'var(--epic)',
+        hierarchy: 'var(--muted)',
+      };
+      Object.entries(markerColors).forEach(([kind, color]) => {
+        const marker = svgElement('marker', { id: `arrow-${kind}`, markerWidth: 8, markerHeight: 8, refX: 7, refY: 4, orient: 'auto' });
+        marker.append(svgElement('path', { d: 'M0,0 L8,4 L0,8 Z', fill: color }));
+        defs.append(marker);
+      });
       svg.append(defs);
 
       const edgesByTargetColumn = new Map();
@@ -643,9 +653,9 @@
         const endX = target.x;
         const endY = target.y + NODE_H / 2;
         svg.append(svgElement('path', {
-          class: 'edge',
+          class: `edge ${edge.kind}`,
           d: routedEdgePath(startX, startY, laneByEdge.get(edge), endX, endY),
-          'marker-end': 'url(#arrow)',
+          'marker-end': `url(#arrow-${edge.kind})`,
         }));
       });
 
@@ -689,7 +699,7 @@
       const issueCount = visibleNodes.length === data.nodes.length
         ? `${data.nodes.length} issues`
         : `${visibleNodes.length} of ${data.nodes.length} issues`;
-      el('counts').textContent = `${issueCount} · ${visibleEdges.length} dependencies`;
+      el('counts').textContent = `${issueCount} · ${visibleEdges.length} relationships`;
       if (selectedId && visibleIds.has(selectedId)) selectNode(selectedId);
       else if (selectedId) clearDetails();
     }

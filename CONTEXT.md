@@ -53,8 +53,20 @@ The presentation state remembered for one Beads repository: graph viewport, sele
 _Avoid_: Global view, shared graph state
 
 **Dependency graph**:
-The directed view of blocking relationships among displayed Beads work items. Parent–child organization is not part of this graph.
-_Avoid_: Task tree, hierarchy graph
+The directed view of work relationships among displayed Beads work items. Prerequisites, follow-on provenance, and hierarchy remain visually distinct, and only prerequisites affect execution state.
+_Avoid_: Blocking-only graph, undifferentiated task tree
+
+**Prerequisite relationship**:
+A directed blocking dependency from required work to the work that requires it. It is the only relationship kind that can make a work item Blocked.
+_Avoid_: Follow-on relationship, hierarchy relationship
+
+**Follow-on relationship**:
+A directed `discovered-from` connection from originating work to work that arose from it. It records provenance without blocking execution.
+_Avoid_: Prerequisite, chronological edge
+
+**Hierarchy relationship**:
+A directed parent–child connection from an epic or container to its direct child. It records organization without blocking execution.
+_Avoid_: Prerequisite, follow-on relationship
 
 **Work item**:
 A human-facing Beads record represented as a normal dependency-graph node, including epics, features, tasks, bugs, chores, and decisions.
@@ -69,7 +81,7 @@ A compact, muted work-item node retained when an active filter would otherwise h
 _Avoid_: Shortcut edge, system node
 
 **Unlinked work**:
-Work items with no blocking-dependency edges. They remain visible in a labeled region of the default graph rather than being omitted.
+Work items with no displayed work-relationship edges. They remain visible in a labeled region of the default graph rather than being omitted.
 _Avoid_: Orphaned work, hidden work
 
 **Completed work**:
@@ -93,11 +105,11 @@ The primary Beads Map surface, combining repository selection, a compact executi
 _Avoid_: Dashboard, report
 
 **Graph search**:
-A graph-preserving locator across work-item ID, title, labels, assignee, and description. It highlights and navigates matches without removing nonmatching nodes or changing dependency topology.
+A graph-preserving locator across work-item ID, title, labels, assignee, and description. It highlights and navigates matches without removing nonmatching nodes or changing relationship topology.
 _Avoid_: Search filter, query view
 
 **Graph filter**:
-An explicit narrowing of visible work by execution state, work-item type, label, or assignee. Choices within a facet combine with OR and facets combine with AND; active filters remain visible and never create synthetic dependency edges.
+An explicit narrowing of visible work by execution state, work-item type, label, or assignee. Choices within a facet combine with OR and facets combine with AND; active filters remain visible and never create synthetic relationships.
 _Avoid_: Graph search, implicit filter
 
 **Path focus**:
@@ -105,7 +117,7 @@ A reversible emphasis mode for the selected work item: all transitive upstream b
 _Avoid_: Graph filter, neighborhood
 
 **Scale gate**:
-An explicit choice shown when a repository exceeds the first release's supported graph envelope of 1,000 displayed nodes or 3,000 dependency edges. It reports complete snapshot counts and recommends an outstanding-work filter without silently dropping work.
+An explicit choice shown when a repository exceeds the first release's supported graph envelope of 1,000 displayed nodes or 3,000 relationships. It reports complete snapshot counts and recommends an outstanding-work filter without silently dropping work.
 _Avoid_: Automatic truncation, hidden limit
 
 **Graph virtualization**:

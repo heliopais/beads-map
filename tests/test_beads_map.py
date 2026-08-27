@@ -55,6 +55,49 @@ class ServerTests(unittest.TestCase):
                 beads_map.create_server(port, strict=True)
 
 
+class GraphNormalizationTests(unittest.TestCase):
+    def test_nonblocking_relationships_render_without_blocking_work(self) -> None:
+        issues = [
+            {"id": "origin", "title": "Origin", "status": "closed"},
+            {"id": "epic", "title": "Epic", "status": "open", "issue_type": "epic"},
+            {"id": "blocker", "title": "Blocker", "status": "open"},
+            {
+                "id": "follow-on",
+                "title": "Follow-on",
+                "status": "open",
+                "dependencies": [
+                    {"issue_id": "follow-on", "depends_on_id": "origin", "type": "discovered-from"},
+                    {"issue_id": "follow-on", "depends_on_id": "epic", "type": "parent-child"},
+                ],
+            },
+            {
+                "id": "blocked",
+                "title": "Blocked",
+                "status": "open",
+                "dependencies": [
+                    {"issue_id": "blocked", "depends_on_id": "blocker", "type": "blocks"},
+                ],
+            },
+        ]
+
+        graph = beads_map.normalize_graph(ROOT, issues)
+        edges = {(edge["type"], edge["kind"]) for edge in graph["edges"]}
+        nodes = {node["id"]: node for node in graph["nodes"]}
+
+        self.assertEqual(
+            edges,
+            {
+                ("blocks", "blocking"),
+                ("discovered-from", "follow-on"),
+                ("parent-child", "hierarchy"),
+            },
+        )
+        self.assertEqual(nodes["follow-on"]["state"], "ready")
+        self.assertEqual(nodes["follow-on"]["blockers"], [])
+        self.assertEqual(nodes["blocked"]["state"], "blocked")
+        self.assertEqual(nodes["blocked"]["blockers"], ["blocker"])
+
+
 class PackagingSmokeTests(unittest.TestCase):
     def test_web_asset_exists(self) -> None:
         self.assertTrue((beads_map.WEB_ROOT / "index.html").is_file())

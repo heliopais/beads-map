@@ -14,8 +14,10 @@ hardens it; it does not replace it with a new stack.
 ### In scope
 
 - Show all human-facing work, including unlinked work, in the active repository.
-- Represent `blocks`, `conditional-blocks`, and `waits-for` as dependency edges.
-- Represent parent-child organization separately from dependency edges.
+- Represent `blocks`, `conditional-blocks`, and `waits-for` as solid prerequisite edges.
+- Represent `discovered-from` as a dashed, nonblocking follow-on edge.
+- Represent parent-child organization as a visually distinct dotted hierarchy edge.
+- Derive blocking state and blocker/dependent details from prerequisite edges only.
 - Derive the display states Completed, In progress, Ready, Blocked, and Deferred.
 - Keep closed work connected and dim it by default.
 - Distinguish work type independently from state, with a stronger accent for
@@ -59,7 +61,8 @@ catalog-only Remove. A failed repository switch leaves the current graph intact.
 A failed refresh retains the last good graph in memory and marks it stale. No
 issue data survives application restart.
 
-The stable layout runs left to right from blockers to dependent outcomes.
+The stable layout runs left to right from originating or prerequisite work to its
+children, follow-ons, and dependent outcomes.
 Filtering and path focus preserve positions, and a refresh re-lays out only graph
 components whose dependencies changed. The initial graph is usable within two
 seconds at 500 nodes and 1,500 edges, and within five seconds at 1,000 nodes and

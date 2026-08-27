@@ -33,11 +33,12 @@ installing the package:
 python3 beads_map.py /path/to/repository
 ```
 
-The POC runs `bd --readonly -C <repository> export`, renders blocking
-dependencies from left to right with crossing-aware task ordering and routed
-edge gutters, and shows issue details when a node is selected. The status chips
-show or hide Completed, In progress, Ready, Blocked,
-and Deferred work. Drag empty canvas space to pan, or `Cmd`-drag vertically to
-zoom around the pointer. It does not write to Beads. The catalog stores paths
-only in the operating system's user configuration directory; it never stores
-issue data.
+The app runs `bd --readonly -C <repository> export` and renders work
+relationships from left to right with crossing-aware task ordering and routed
+edge gutters. Solid edges are prerequisites, dashed edges are follow-on
+provenance, and dotted edges are parent-child hierarchy; only prerequisites
+affect Blocked state. Selecting a node shows its details. The status chips show
+or hide Completed, In progress, Ready, Blocked, and Deferred work. Drag empty
+canvas space to pan, or `Cmd`-drag vertically to zoom around the pointer. It
+does not write to Beads. The catalog stores paths only in the operating system's
+user configuration directory; it never stores issue data.

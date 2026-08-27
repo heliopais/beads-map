@@ -17,8 +17,9 @@ from typing import Sequence
 from urllib.parse import urlsplit
 
 
-__version__ = "0.1.0"
+__version__ = "0.1.1"
 BLOCKING_DEPENDENCIES = {"blocks", "conditional-blocks", "waits-for"}
+DISPLAYED_DEPENDENCIES = BLOCKING_DEPENDENCIES | {"discovered-from", "parent-child"}
 MINIMUM_BD_VERSION = (1, 1, 0)
 MAXIMUM_BD_VERSION = (2, 0, 0)
 ROOT = Path(__file__).resolve().parent
@@ -254,16 +255,25 @@ def normalize_graph(repository: Path, issues: list[dict]) -> dict:
             dependency_type = dependency.get("type") or dependency.get("dependency_type")
             source = dependency.get("depends_on_id")
             target = dependency.get("issue_id") or issue["id"]
-            if (
-                dependency_type in BLOCKING_DEPENDENCIES
-                and source in by_id
-                and target in by_id
-            ):
-                edges.append({"source": source, "target": target, "type": dependency_type})
+            if dependency_type in DISPLAYED_DEPENDENCIES and source in by_id and target in by_id:
+                if dependency_type in BLOCKING_DEPENDENCIES:
+                    kind = "blocking"
+                elif dependency_type == "discovered-from":
+                    kind = "follow-on"
+                else:
+                    kind = "hierarchy"
+                edges.append(
+                    {
+                        "source": source,
+                        "target": target,
+                        "type": dependency_type,
+                        "kind": kind,
+                    }
+                )
 
     blockers: dict[str, list[str]] = {issue_id: [] for issue_id in by_id}
     dependents: dict[str, list[str]] = {issue_id: [] for issue_id in by_id}
-    for edge in edges:
+    for edge in (edge for edge in edges if edge["kind"] == "blocking"):
         blockers[edge["target"]].append(edge["source"])
         dependents[edge["source"]].append(edge["target"])
 
@@ -516,7 +526,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     if graph:
         print(
             f"Beads Map: {graph['repository']} · {len(graph['nodes'])} issues · "
-            f"{len(graph['edges'])} dependencies"
+            f"{len(graph['edges'])} relationships"
         )
     else:
         print("Beads Map: add or select a readable Beads repository in the browser")
