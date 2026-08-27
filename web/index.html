@@ -137,6 +137,9 @@
       font-size: 12px;
     }
     .graph-head strong { color: var(--text); }
+    .graph-scope { display: flex; align-items: center; gap: 8px; min-width: 0; }
+    .graph-scope strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .scope-back { flex: 0 0 auto; padding: 4px 8px; }
     .graph-tools, .zoom-controls, .search-controls { display: flex; align-items: center; gap: 6px; }
     .search-controls { margin-left: auto; }
     .search-input {
@@ -298,7 +301,10 @@
   <main id="workspace">
     <section class="graph-panel" aria-label="Dependency graph">
       <div class="graph-head">
-        <strong>Dependency graph</strong>
+        <div class="graph-scope">
+          <button class="header-button scope-back" id="scope-back" type="button" hidden>← Full map</button>
+          <strong id="graph-heading" aria-live="polite">Dependency graph</strong>
+        </div>
         <div class="graph-tools">
           <span>Left → right · Solid prerequisite · Dashed follow-on · Dotted hierarchy</span>
           <div class="search-controls" role="search" aria-label="Find work items">
@@ -365,6 +371,8 @@
     let searchMatches = [];
     let searchIndex = -1;
     let relationshipNavigation = null;
+    let epicScopeId = null;
+    let fullMapView = null;
 
     const el = id => document.getElementById(id);
     const svgElement = (name, attributes = {}) => {
@@ -447,7 +455,7 @@
     async function persistView() {
       window.clearTimeout(viewSaveTimer);
       viewSaveTimer = null;
-      if (!currentRepository || location.protocol === 'file:') return;
+      if (!currentRepository || epicScopeId || location.protocol === 'file:') return;
       const path = currentRepository;
       const view = currentView();
       catalogViews[path] = view;
@@ -463,8 +471,70 @@
     }
 
     function scheduleViewSave() {
+      if (epicScopeId) return;
       window.clearTimeout(viewSaveTimer);
       viewSaveTimer = window.setTimeout(persistView, 350);
+    }
+
+    function nodesInCurrentScope(data) {
+      if (!epicScopeId) return data.nodes;
+      const epic = data.nodes.find(node => node.id === epicScopeId && node.type === 'epic');
+      if (!epic) {
+        epicScopeId = null;
+        fullMapView = null;
+        return data.nodes;
+      }
+
+      const scopeIds = new Set([epic.id]);
+      const queue = [epic.id];
+      while (queue.length) {
+        const parentId = queue.shift();
+        data.edges.forEach(edge => {
+          if (edge.type === 'parent-child' && edge.source === parentId && !scopeIds.has(edge.target)) {
+            scopeIds.add(edge.target);
+            queue.push(edge.target);
+          }
+        });
+      }
+      return data.nodes.filter(node => scopeIds.has(node.id));
+    }
+
+    function updateScopeHeading(data) {
+      const epic = epicScopeId ? data.nodes.find(node => node.id === epicScopeId) : null;
+      el('scope-back').hidden = !epic;
+      el('graph-heading').textContent = epic ? `Epic: ${epic.title}` : 'Dependency graph';
+    }
+
+    function enterEpicScope(id) {
+      const epic = graphData?.nodes.find(node => node.id === id && node.type === 'epic');
+      if (!epic) return;
+      if (!epicScopeId) {
+        const scroller = el('graph-scroller');
+        fullMapView = {
+          zoom,
+          scrollLeft: scroller.scrollLeft,
+          scrollTop: scroller.scrollTop,
+          selectedId,
+        };
+      }
+      epicScopeId = id;
+      clearDetails();
+      zoom = 1;
+      renderGraph(graphData);
+      fitGraph();
+    }
+
+    function leaveEpicScope() {
+      if (!epicScopeId || !graphData) return;
+      const view = fullMapView;
+      epicScopeId = null;
+      fullMapView = null;
+      if (view) {
+        zoom = view.zoom;
+        selectedId = view.selectedId;
+      }
+      renderGraph(graphData);
+      if (view) el('graph-scroller').scrollTo({ left: view.scrollLeft, top: view.scrollTop });
     }
 
     function renderSearchState() {
@@ -488,7 +558,7 @@
       const query = el('graph-search').value.trim().toLocaleLowerCase();
       const currentId = preserveCurrent && searchIndex >= 0 ? searchMatches[searchIndex]?.id : null;
       searchMatches = query && graphData
-        ? graphData.nodes.filter(node => `${node.id}\n${node.title}`.toLocaleLowerCase().includes(query))
+        ? nodesInCurrentScope(graphData).filter(node => `${node.id}\n${node.title}`.toLocaleLowerCase().includes(query))
         : [];
       searchIndex = currentId ? searchMatches.findIndex(node => node.id === currentId) : -1;
       renderSearchState();
@@ -887,6 +957,8 @@
         || nextTypes.some((type, index) => type !== availableTypes[index]);
       let savedScroll = null;
       if (repositoryChanged) {
+        epicScopeId = null;
+        fullMapView = null;
         clearGraphSearch();
         clearDetails();
         const view = catalogViews[data.path] || {};
@@ -917,9 +989,11 @@
       else updateStatusControls();
       currentRepository = data.path;
       graphData = data;
+      const scopedNodes = nodesInCurrentScope(data);
+      updateScopeHeading(data);
       const svg = el('graph');
       svg.replaceChildren();
-      const visibleNodes = data.nodes.filter(node => visibleStates.has(node.state) && visibleTypes.has(node.type));
+      const visibleNodes = scopedNodes.filter(node => visibleStates.has(node.state) && visibleTypes.has(node.type));
       const visibleIds = new Set(visibleNodes.map(node => node.id));
       const visibleEdges = data.edges.filter(edge => visibleIds.has(edge.source) && visibleIds.has(edge.target));
       const ranks = rankNodes(visibleNodes, visibleEdges);
@@ -959,7 +1033,7 @@
       svg.append(defs);
 
       if (!visibleNodes.length) {
-        const message = data.nodes.length
+        const message = scopedNodes.length
           ? 'No work matches the current filters. Use Show all to restore the graph.'
           : 'This repository has no work items yet.';
         const emptyState = svgElement('text', {
@@ -1054,6 +1128,11 @@
           scheduleViewSave();
         };
         group.addEventListener('click', activate);
+        group.addEventListener('dblclick', event => {
+          if (node.type !== 'epic') return;
+          event.preventDefault();
+          enterEpicScope(node.id);
+        });
         group.addEventListener('keydown', event => {
           if (event.key === 'Enter' || event.key === ' ') {
             event.preventDefault();
@@ -1070,9 +1149,9 @@
 
       el('repository-select').value = data.path;
       el('repository-select').title = data.path;
-      const issueCount = visibleNodes.length === data.nodes.length
-        ? `${data.nodes.length} issues`
-        : `${visibleNodes.length} of ${data.nodes.length} issues`;
+      const issueCount = visibleNodes.length === scopedNodes.length
+        ? `${scopedNodes.length} issues`
+        : `${visibleNodes.length} of ${scopedNodes.length} issues`;
       el('counts').textContent = `${issueCount} · ${visibleEdges.length} relationships`;
       if (selectedId && visibleIds.has(selectedId)) selectNode(selectedId);
       else if (selectedId) clearDetails();
@@ -1198,6 +1277,9 @@
         currentRepository = null;
         graphData = null;
         snapshotHash = null;
+        epicScopeId = null;
+        fullMapView = null;
+        updateScopeHeading({ nodes: [] });
         clearDetails();
         if (catalog.selected) await loadGraph();
         else {
@@ -1260,6 +1342,7 @@
       button.addEventListener('click', () => toggleStatus(button.dataset.state));
     });
     el('status-show-all').addEventListener('click', showAllFilters);
+    el('scope-back').addEventListener('click', leaveEpicScope);
     el('zoom-out').addEventListener('click', () => {
       setZoom(zoom - 0.15);
       scheduleViewSave();
