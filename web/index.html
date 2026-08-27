@@ -216,6 +216,7 @@
     .node.search-current rect:first-child { stroke: var(--focus); stroke-width: 3.2; }
     .node-title { fill: var(--text); font-size: 13px; font-weight: 600; }
     .node-meta { fill: var(--muted); font-size: 10px; letter-spacing: .06em; text-transform: uppercase; }
+    .graph-empty { fill: var(--muted); font-size: 15px; }
 
     aside {
       padding: 18px;
@@ -956,6 +957,22 @@
         defs.append(marker);
       });
       svg.append(defs);
+
+      if (!visibleNodes.length) {
+        const message = data.nodes.length
+          ? 'No work matches the current filters. Use Show all to restore the graph.'
+          : 'This repository has no work items yet.';
+        const emptyState = svgElement('text', {
+          class: 'graph-empty',
+          x: width / 2,
+          y: height / 2,
+          'text-anchor': 'middle',
+          role: 'status',
+          'aria-label': message,
+        });
+        emptyState.textContent = message;
+        svg.append(emptyState);
+      }
 
       const edgesByTargetColumn = new Map();
       visibleEdges.forEach(edge => {
