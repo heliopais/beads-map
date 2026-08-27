@@ -20,6 +20,7 @@
       --blocked: #db8b3c;
       --deferred: #9a6cc7;
       --epic: #8a58c7;
+      --search: #c28a12;
     }
 
     * { box-sizing: border-box; }
@@ -123,16 +124,31 @@
     .graph-panel { min-width: 0; padding: 14px; overflow: hidden; }
     .graph-head {
       display: flex;
+      flex-wrap: wrap;
       align-items: center;
       justify-content: space-between;
+      gap: 8px 14px;
       margin: 0 2px 9px;
       color: var(--muted);
       font-size: 12px;
     }
     .graph-head strong { color: var(--text); }
-    .graph-tools, .zoom-controls { display: flex; align-items: center; gap: 6px; }
+    .graph-tools, .zoom-controls, .search-controls { display: flex; align-items: center; gap: 6px; }
+    .search-controls { margin-left: auto; }
+    .search-input {
+      width: min(220px, 24vw);
+      height: 28px;
+      padding: 0 8px;
+      color: var(--text);
+      background: var(--surface-2);
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      font: inherit;
+    }
+    .search-input:focus { border-color: var(--focus); outline: 2px solid color-mix(in srgb, var(--focus) 25%, transparent); }
+    .search-count { min-width: 68px; text-align: center; font-variant-numeric: tabular-nums; }
     .zoom-controls { margin-left: 8px; }
-    .zoom-controls button {
+    .zoom-controls button, .search-controls button {
       min-width: 30px;
       height: 28px;
       padding: 0 8px;
@@ -142,8 +158,8 @@
       border-radius: 6px;
       cursor: pointer;
     }
-    .zoom-controls button:hover { border-color: var(--focus); }
-    .zoom-controls button:disabled { cursor: default; opacity: .45; }
+    .zoom-controls button:hover, .search-controls button:hover { border-color: var(--focus); }
+    .zoom-controls button:disabled, .search-controls button:disabled { cursor: default; opacity: .45; }
     .zoom-level { min-width: 40px; text-align: center; font-variant-numeric: tabular-nums; }
     .scroller {
       height: calc(100% - 28px);
@@ -185,6 +201,8 @@
     .node:hover rect:first-child,
     .node:focus rect:first-child,
     .node.selected rect:first-child { stroke: var(--focus); stroke-width: 2.5; }
+    .node.search-match rect:first-child { stroke: var(--search); stroke-width: 2.3; }
+    .node.search-current rect:first-child { stroke: var(--focus); stroke-width: 3.2; }
     .node-title { fill: var(--text); font-size: 13px; font-weight: 600; }
     .node-meta { fill: var(--muted); font-size: 10px; letter-spacing: .06em; text-transform: uppercase; }
 
@@ -222,6 +240,9 @@
       .graph-panel { height: 65vh; }
       aside { border-left: 0; border-top: 1px solid var(--line); }
       .legend { width: 100%; margin-left: 0; }
+      .graph-tools { width: 100%; flex-wrap: wrap; }
+      .search-controls { width: 100%; margin-left: 0; }
+      .search-input { flex: 1; width: auto; }
     }
   </style>
 </head>
@@ -262,6 +283,12 @@
         <strong>Dependency graph</strong>
         <div class="graph-tools">
           <span>Left → right · Solid prerequisite · Dashed follow-on · Dotted hierarchy</span>
+          <div class="search-controls" role="search" aria-label="Find work items">
+            <input class="search-input" id="graph-search" type="search" placeholder="Search title or ID" autocomplete="off" aria-label="Search work items by title or ID">
+            <span class="search-count" id="search-count" aria-live="polite"></span>
+            <button id="search-previous" type="button" aria-label="Previous search match" title="Previous match (Shift+Enter)" disabled>↑</button>
+            <button id="search-next" type="button" aria-label="Next search match" title="Next match (Enter)" disabled>↓</button>
+          </div>
           <div class="zoom-controls" aria-label="Graph zoom controls">
             <button id="zoom-out" type="button" aria-label="Zoom out" title="Zoom out">−</button>
             <span class="zoom-level" id="zoom-level" aria-live="polite">100%</span>
@@ -310,6 +337,9 @@
     let refreshing = false;
     let catalogViews = {};
     let viewSaveTimer = null;
+    let nodePositions = new Map();
+    let searchMatches = [];
+    let searchIndex = -1;
 
     const el = id => document.getElementById(id);
     const svgElement = (name, attributes = {}) => {
@@ -409,6 +439,62 @@
     function scheduleViewSave() {
       window.clearTimeout(viewSaveTimer);
       viewSaveTimer = window.setTimeout(persistView, 350);
+    }
+
+    function renderSearchState() {
+      const query = el('graph-search').value.trim();
+      const count = el('search-count');
+      if (!query) count.textContent = '';
+      else if (!searchMatches.length) count.textContent = 'No matches';
+      else if (searchIndex >= 0) count.textContent = `${searchIndex + 1} of ${searchMatches.length}`;
+      else count.textContent = `${searchMatches.length} ${searchMatches.length === 1 ? 'match' : 'matches'}`;
+      el('search-previous').disabled = !searchMatches.length;
+      el('search-next').disabled = !searchMatches.length;
+      const matchIds = new Set(searchMatches.map(node => node.id));
+      const currentId = searchIndex >= 0 ? searchMatches[searchIndex]?.id : null;
+      document.querySelectorAll('.node').forEach(node => {
+        node.classList.toggle('search-match', matchIds.has(node.dataset.id));
+        node.classList.toggle('search-current', node.dataset.id === currentId);
+      });
+    }
+
+    function updateGraphSearch(preserveCurrent = false) {
+      const query = el('graph-search').value.trim().toLocaleLowerCase();
+      const currentId = preserveCurrent && searchIndex >= 0 ? searchMatches[searchIndex]?.id : null;
+      searchMatches = query && graphData
+        ? graphData.nodes.filter(node => `${node.id}\n${node.title}`.toLocaleLowerCase().includes(query))
+        : [];
+      searchIndex = currentId ? searchMatches.findIndex(node => node.id === currentId) : -1;
+      renderSearchState();
+    }
+
+    function clearGraphSearch() {
+      el('graph-search').value = '';
+      searchMatches = [];
+      searchIndex = -1;
+      renderSearchState();
+    }
+
+    function focusNode(id) {
+      const position = nodePositions.get(id);
+      if (!position) return;
+      const scroller = el('graph-scroller');
+      scroller.scrollTo({
+        left: (position.x + NODE_W / 2) * zoom - scroller.clientWidth / 2,
+        top: (position.y + NODE_H / 2) * zoom - scroller.clientHeight / 2,
+        behavior: 'smooth',
+      });
+    }
+
+    function navigateSearch(direction) {
+      if (!searchMatches.length) return;
+      if (searchIndex < 0) searchIndex = direction > 0 ? 0 : searchMatches.length - 1;
+      else searchIndex = (searchIndex + direction + searchMatches.length) % searchMatches.length;
+      const node = searchMatches[searchIndex];
+      selectNode(node.id);
+      focusNode(node.id);
+      renderSearchState();
+      scheduleViewSave();
     }
 
     function clearDetails() {
@@ -640,6 +726,7 @@
       const repositoryChanged = currentRepository !== data.path;
       let savedScroll = null;
       if (repositoryChanged) {
+        clearGraphSearch();
         clearDetails();
         const view = catalogViews[data.path] || {};
         zoom = view.zoom || 1;
@@ -675,6 +762,7 @@
       const width = Math.max(760, 96 + (maxRank + 1) * NODE_W + maxRank * X_GAP);
       const height = Math.max(520, 96 + maxRows * NODE_H + (maxRows - 1) * Y_GAP);
       graphSize = { width, height };
+      nodePositions = positions;
       svg.setAttribute('viewBox', `0 0 ${width} ${height}`);
       setZoom(zoom, false);
       if (savedScroll) el('graph-scroller').scrollTo(savedScroll);
@@ -776,6 +864,7 @@
       el('counts').textContent = `${issueCount} · ${visibleEdges.length} relationships`;
       if (selectedId && visibleIds.has(selectedId)) selectNode(selectedId);
       else if (selectedId) clearDetails();
+      updateGraphSearch(true);
     }
 
     function namesFor(ids) {
@@ -923,6 +1012,24 @@
     el('repository-select').addEventListener('change', event => chooseRepository(event.target.value));
     el('repository-add').addEventListener('click', addRepository);
     el('repository-remove').addEventListener('click', removeRepository);
+    el('graph-search').addEventListener('input', () => updateGraphSearch(false));
+    el('graph-search').addEventListener('keydown', event => {
+      if (event.key === 'Enter') {
+        event.preventDefault();
+        navigateSearch(event.shiftKey ? -1 : 1);
+      } else if (event.key === 'Escape') {
+        clearGraphSearch();
+      }
+    });
+    el('search-previous').addEventListener('click', () => navigateSearch(-1));
+    el('search-next').addEventListener('click', () => navigateSearch(1));
+    document.addEventListener('keydown', event => {
+      if ((event.metaKey || event.ctrlKey) && event.key.toLocaleLowerCase() === 'f') {
+        event.preventDefault();
+        el('graph-search').focus();
+        el('graph-search').select();
+      }
+    });
     document.querySelectorAll('[data-state]').forEach(button => {
       button.addEventListener('click', () => toggleStatus(button.dataset.state));
     });
