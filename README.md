@@ -39,13 +39,16 @@ edge gutters. Solid edges are prerequisites, dashed edges are follow-on
 provenance, and dotted edges are parent-child hierarchy; only prerequisites
 affect Blocked state. Selecting a node shows its details, highlights direct
 upstream and downstream relationships, and fades unrelated work without moving
-the graph; select it again or press Escape to clear. Search finds work by title
-or ID without filtering or relaying out the graph; Enter and Shift-Enter cycle
-through matches. The status chips show or hide Completed, In progress, Ready,
-Blocked, and Deferred work. Drag empty canvas space to pan, or `Cmd`-drag
-vertically to zoom around the pointer. The graph checks for Beads changes every
-five seconds and skips redrawing when the snapshot is unchanged. If a read
-fails, the last good graph stays visible and is marked stale.
+the graph. With a graph node focused, use Left/Right to enter its direct upstream
+or downstream relationships and Up/Down to cycle multiple choices; the opposite
+horizontal arrow returns to the starting node. Select it again or press Escape
+to clear. Search finds work by title or ID without filtering or relaying out the
+graph; Enter and Shift-Enter cycle through matches. The status chips show or
+hide Completed, In progress, Ready, Blocked, and Deferred work. Drag empty
+canvas space to pan, or `Cmd`-drag vertically to zoom around the pointer. The
+graph checks for Beads changes every five seconds and skips redrawing when the
+snapshot is unchanged. If a read fails, the last good graph stays visible and
+is marked stale.
 
 It does not write to Beads. The catalog stores repository paths and per-repository
 view preferences in the operating system's user configuration directory; it

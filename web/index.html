@@ -316,7 +316,7 @@
         <h2 id="detail-title"></h2>
         <div class="state" id="detail-state"></div>
         <div class="selection-context" id="selection-context" hidden>
-          <span class="upstream">Upstream</span> · <span class="downstream">Downstream</span> · Escape to clear
+          ← <span class="upstream">Upstream</span> · <span class="downstream">Downstream</span> → · ↑/↓ cycle · Escape to clear
         </div>
         <dl>
           <div><dt>Raw status</dt><dd id="detail-raw"></dd></div>
@@ -353,6 +353,7 @@
     let nodePositions = new Map();
     let searchMatches = [];
     let searchIndex = -1;
+    let relationshipNavigation = null;
 
     const el = id => document.getElementById(id);
     const svgElement = (name, attributes = {}) => {
@@ -548,8 +549,67 @@
       el('selection-context').hidden = !selectedId;
     }
 
+    function visibleRelationshipIds(anchorId, direction) {
+      if (!graphData) return [];
+      const ids = new Set();
+      graphData.edges.forEach(edge => {
+        if (direction === 'upstream' && edge.target === anchorId && nodePositions.has(edge.source)) {
+          ids.add(edge.source);
+        } else if (direction === 'downstream' && edge.source === anchorId && nodePositions.has(edge.target)) {
+          ids.add(edge.target);
+        }
+      });
+      return [...ids].sort((left, right) => {
+        const leftPosition = nodePositions.get(left);
+        const rightPosition = nodePositions.get(right);
+        return leftPosition.y - rightPosition.y || leftPosition.x - rightPosition.x || left.localeCompare(right);
+      });
+    }
+
+    function focusGraphNode(id) {
+      focusNode(id);
+      const node = [...document.querySelectorAll('.node')].find(element => element.dataset.id === id);
+      node?.focus({ preventScroll: true });
+    }
+
+    function moveRelationshipSelection(id) {
+      selectNode(id, { preserveRelationshipNavigation: true });
+      focusGraphNode(id);
+      scheduleViewSave();
+    }
+
+    function cycleRelationships(step) {
+      const navigation = relationshipNavigation;
+      if (!navigation || !navigation.ids.includes(selectedId)) return false;
+      navigation.index = (navigation.index + step + navigation.ids.length) % navigation.ids.length;
+      moveRelationshipSelection(navigation.ids[navigation.index]);
+      return true;
+    }
+
+    function navigateDirectRelationship(direction) {
+      if (!selectedId) return false;
+      const navigation = relationshipNavigation;
+      if (navigation && navigation.ids.includes(selectedId)) {
+        if (navigation.direction === direction) return cycleRelationships(1);
+        const anchorId = navigation.anchorId;
+        relationshipNavigation = null;
+        selectNode(anchorId);
+        focusGraphNode(anchorId);
+        scheduleViewSave();
+        return true;
+      }
+
+      const anchorId = selectedId;
+      const ids = visibleRelationshipIds(anchorId, direction);
+      if (!ids.length) return false;
+      relationshipNavigation = { anchorId, direction, ids, index: 0 };
+      moveRelationshipSelection(ids[0]);
+      return true;
+    }
+
     function clearDetails() {
       selectedId = null;
+      relationshipNavigation = null;
       el('details').hidden = true;
       el('details-empty').hidden = false;
       document.querySelectorAll('.node').forEach(node => node.classList.remove('selected'));
@@ -884,6 +944,7 @@
           tabindex: '0',
           role: 'button',
           'aria-label': baseLabel,
+          'aria-keyshortcuts': 'ArrowLeft ArrowRight ArrowUp ArrowDown Escape',
           'data-base-label': baseLabel,
         });
         group.dataset.id = node.id;
@@ -911,6 +972,11 @@
           if (event.key === 'Enter' || event.key === ' ') {
             event.preventDefault();
             activate();
+          } else if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') {
+            const direction = event.key === 'ArrowLeft' ? 'upstream' : 'downstream';
+            if (navigateDirectRelationship(direction)) event.preventDefault();
+          } else if (event.key === 'ArrowUp' || event.key === 'ArrowDown') {
+            if (cycleRelationships(event.key === 'ArrowUp' ? -1 : 1)) event.preventDefault();
           }
         });
         svg.append(group);
@@ -932,9 +998,10 @@
       return ids.length ? ids.map(id => byId.get(id) || id).join(', ') : 'None';
     }
 
-    function selectNode(id) {
+    function selectNode(id, { preserveRelationshipNavigation = false } = {}) {
       const node = graphData.nodes.find(candidate => candidate.id === id);
       if (!node) return;
+      if (!preserveRelationshipNavigation) relationshipNavigation = null;
       selectedId = id;
       document.querySelectorAll('.node').forEach(element => element.classList.toggle('selected', element.dataset.id === id));
       el('details-empty').hidden = true;
