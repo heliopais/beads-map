@@ -1,0 +1,33 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "beads-map"
+version = "0.1.0"
+description = "A local, read-only dependency graph for Beads repositories"
+readme = "README.md"
+requires-python = ">=3.11"
+license = "MIT"
+authors = [{ name = "Helio Pais" }]
+dependencies = []
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Environment :: Console",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3 :: Only",
+]
+
+[project.urls]
+Repository = "https://github.com/heliopais/beads-map"
+
+[project.scripts]
+beads-map = "beads_map:main"
+
+[tool.setuptools]
+packages = ["beads_map"]
+package-dir = { beads_map = "." }
+include-package-data = false
+
+[tool.setuptools.package-data]
+beads_map = ["web/index.html"]

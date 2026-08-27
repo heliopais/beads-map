@@ -3,3 +3,9 @@
 .dolt/
 *.db
 .beads-credential-key
+
+# Python build artifacts
+build/
+dist/
+*.egg-info/
+__pycache__/

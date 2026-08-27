@@ -6,22 +6,65 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import subprocess
 import sys
 import threading
 import webbrowser
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from typing import Sequence
 from urllib.parse import urlsplit
 
 
+__version__ = "0.1.0"
 BLOCKING_DEPENDENCIES = {"blocks", "conditional-blocks", "waits-for"}
+MINIMUM_BD_VERSION = (1, 1, 0)
+MAXIMUM_BD_VERSION = (2, 0, 0)
 ROOT = Path(__file__).resolve().parent
 WEB_ROOT = ROOT / "web"
 
 
 class BeadsError(RuntimeError):
     pass
+
+
+def parse_bd_version(output: str) -> tuple[int, int, int]:
+    match = re.search(r"\b(\d+)\.(\d+)\.(\d+)\b", output)
+    if match is None:
+        raise BeadsError("Could not determine the installed bd version.")
+    return tuple(int(part) for part in match.groups())
+
+
+def ensure_supported_bd() -> tuple[int, int, int]:
+    try:
+        result = subprocess.run(
+            ["bd", "version"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+            check=False,
+        )
+    except FileNotFoundError as error:
+        raise BeadsError(
+            "The bd command was not found on PATH. Install Beads >=1.1 and <2, "
+            "then try again."
+        ) from error
+    except subprocess.TimeoutExpired as error:
+        raise BeadsError("Timed out while checking the installed bd version.") from error
+
+    if result.returncode != 0:
+        message = result.stderr.strip() or result.stdout.strip()
+        raise BeadsError(message or "Could not run `bd version`.")
+
+    version = parse_bd_version(result.stdout or result.stderr)
+    if not MINIMUM_BD_VERSION <= version < MAXIMUM_BD_VERSION:
+        found = ".".join(str(part) for part in version)
+        raise BeadsError(
+            f"Beads Map requires bd >=1.1 and <2; found {found}. "
+            "Upgrade Beads and try again."
+        )
+    return version
 
 
 def default_catalog_path() -> Path:
@@ -390,7 +433,17 @@ class AppHandler(BaseHTTPRequestHandler):
         print(f"[beads-map] {format % args}")
 
 
-def parse_args() -> argparse.Namespace:
+def port_number(value: str) -> int:
+    try:
+        port = int(value)
+    except ValueError as error:
+        raise argparse.ArgumentTypeError("port must be an integer") from error
+    if not 1 <= port <= 65_535:
+        raise argparse.ArgumentTypeError("port must be between 1 and 65535")
+    return port
+
+
+def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "repositories",
@@ -398,13 +451,36 @@ def parse_args() -> argparse.Namespace:
         metavar="repository",
         help="Beads repository paths to remember",
     )
-    parser.add_argument("--port", type=int, default=8765, help="Local HTTP port")
+    parser.add_argument(
+        "--port",
+        type=port_number,
+        help="Local HTTP port (default: 8765, with automatic fallback)",
+    )
     parser.add_argument("--no-browser", action="store_true", help="Do not open a browser")
-    return parser.parse_args()
+    parser.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
+    return parser.parse_args(argv)
 
 
-def main() -> int:
-    args = parse_args()
+def create_server(port: int, *, strict: bool) -> ThreadingHTTPServer:
+    try:
+        return ThreadingHTTPServer(("127.0.0.1", port), AppHandler)
+    except OSError as error:
+        if strict:
+            raise BeadsError(f"Could not use explicit port {port}: {error}") from error
+    try:
+        return ThreadingHTTPServer(("127.0.0.1", 0), AppHandler)
+    except OSError as error:
+        raise BeadsError(f"Could not start a local server: {error}") from error
+
+
+def main(argv: Sequence[str] | None = None) -> int:
+    args = parse_args(argv)
+    try:
+        ensure_supported_bd()
+    except BeadsError as error:
+        print(error, file=sys.stderr)
+        return 2
+
     catalog = RepositoryCatalog(default_catalog_path())
     supplied = args.repositories
     if not supplied and catalog.selected() is None:
@@ -430,12 +506,13 @@ def main() -> int:
 
     AppHandler.catalog = catalog
     try:
-        server = ThreadingHTTPServer(("127.0.0.1", args.port), AppHandler)
-    except OSError as error:
-        print(f"Could not start local server: {error}", file=sys.stderr)
+        server = create_server(args.port or 8765, strict=args.port is not None)
+    except BeadsError as error:
+        print(error, file=sys.stderr)
         return 2
 
-    url = f"http://127.0.0.1:{args.port}"
+    actual_port = server.server_address[1]
+    url = f"http://127.0.0.1:{actual_port}"
     if graph:
         print(
             f"Beads Map: {graph['repository']} · {len(graph['nodes'])} issues · "
