@@ -46,11 +46,13 @@ to clear. Search finds work by title or ID without filtering or relaying out the
 graph; Enter and Shift-Enter cycle through matches. The status chips show or
 hide Completed, In progress, Ready, Blocked, and Deferred work; the adjacent
 type chips combine with them to narrow the graph further, and Show all resets
-both. Filter visibility is remembered per repository. Drag empty canvas space
-to pan, or `Cmd`-drag vertically to zoom around the pointer. The graph checks
-for Beads changes every five seconds and skips redrawing when the snapshot is
-unchanged. If a read fails, the last good graph stays visible and is marked
-stale.
+both. Epic nodes with direct human-facing children show a simple closed/total
+count; deferred children remain incomplete, and the count never changes the
+epic's own state. Filter visibility is remembered per repository. Drag empty
+canvas space to pan, or `Cmd`-drag vertically to zoom around the pointer. The
+graph checks for Beads changes every five seconds and skips redrawing when the
+snapshot is unchanged. If a read fails, the last good graph stays visible and
+is marked stale.
 
 It does not write to Beads. The catalog stores repository paths and per-repository
 view preferences in the operating system's user configuration directory; it

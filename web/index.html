@@ -327,6 +327,7 @@
         </div>
         <dl>
           <div><dt>Raw status</dt><dd id="detail-raw"></dd></div>
+          <div id="detail-progress-row" hidden><dt>Direct child progress</dt><dd id="detail-progress"></dd></div>
           <div><dt>Blocked by</dt><dd id="detail-blockers"></dd></div>
           <div><dt>Blocks</dt><dd id="detail-dependents"></dd></div>
           <div><dt>Labels</dt><dd id="detail-labels"></dd></div>
@@ -999,7 +1000,13 @@
 
       visibleNodes.forEach(node => {
         const position = positions.get(node.id);
-        const baseLabel = `${node.title}, ${node.state}`;
+        const progressText = node.epicProgress
+          ? ` · ${node.epicProgress.completed}/${node.epicProgress.total}`
+          : '';
+        const progressLabel = node.epicProgress
+          ? `, ${node.epicProgress.completed} of ${node.epicProgress.total} direct children closed`
+          : '';
+        const baseLabel = `${node.title}, ${node.state}${progressLabel}`;
         const group = svgElement('g', {
           class: `node ${node.state} ${node.type === 'epic' ? 'epic' : ''}`,
           transform: `translate(${position.x} ${position.y})`,
@@ -1014,7 +1021,7 @@
         group.append(svgElement('line', { class: 'accent', x1: 3, y1: 10, x2: 3, y2: NODE_H - 10 }));
 
         const meta = svgElement('text', { class: 'node-meta', x: 15, y: 20 });
-        meta.textContent = `${node.type} · ${node.state.replace('-', ' ')}`;
+        meta.textContent = `${node.type} · ${node.state.replace('-', ' ')}${progressText}`;
         group.append(meta);
 
         const title = svgElement('text', { class: 'node-title', x: 15, y: 43 });
@@ -1074,6 +1081,10 @@
       el('detail-state').textContent = node.state.replace('-', ' ');
       el('detail-state').className = `state ${node.state}`;
       el('detail-raw').textContent = node.rawStatus;
+      el('detail-progress-row').hidden = !node.epicProgress;
+      el('detail-progress').textContent = node.epicProgress
+        ? `${node.epicProgress.completed} / ${node.epicProgress.total} closed`
+        : '';
       el('detail-blockers').textContent = namesFor(node.blockers);
       el('detail-dependents').textContent = namesFor(node.dependents);
       el('detail-labels').textContent = node.labels.length ? node.labels.join(', ') : 'None';

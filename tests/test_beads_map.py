@@ -101,6 +101,54 @@ class GraphNormalizationTests(unittest.TestCase):
         self.assertEqual(nodes["blocked"]["state"], "blocked")
         self.assertEqual(nodes["blocked"]["blockers"], ["blocker"])
 
+    def test_epic_progress_counts_only_direct_human_children(self) -> None:
+        def child(
+            issue_id: str,
+            status: str,
+            parent_id: str,
+            issue_type: str = "task",
+            **fields: object,
+        ) -> dict:
+            return {
+                "id": issue_id,
+                "title": issue_id,
+                "status": status,
+                "issue_type": issue_type,
+                "dependencies": [
+                    {
+                        "issue_id": issue_id,
+                        "depends_on_id": parent_id,
+                        "type": "parent-child",
+                    }
+                ],
+                **fields,
+            }
+
+        issues = [
+            {"id": "epic", "title": "Epic", "status": "open", "issue_type": "epic"},
+            child("closed-child", "closed", "epic"),
+            child("open-child", "open", "epic"),
+            child("deferred-child", "open", "epic", deferred_until="tomorrow"),
+            child("system-child", "closed", "epic", issue_type="agent"),
+            child("nested-child", "closed", "open-child"),
+            {
+                "id": "empty-epic",
+                "title": "Empty",
+                "status": "closed",
+                "issue_type": "epic",
+            },
+        ]
+
+        graph = beads_map.normalize_graph(ROOT, issues)
+        nodes = {node["id"]: node for node in graph["nodes"]}
+
+        self.assertEqual(nodes["epic"]["epicProgress"], {"completed": 1, "total": 3})
+        self.assertEqual(nodes["epic"]["rawStatus"], "open")
+        self.assertEqual(nodes["epic"]["state"], "ready")
+        self.assertEqual(nodes["deferred-child"]["state"], "deferred")
+        self.assertNotIn("epicProgress", nodes["open-child"])
+        self.assertNotIn("epicProgress", nodes["empty-epic"])
+
     def test_hash_is_stable_when_export_order_changes(self) -> None:
         issues = [
             {"id": "b", "title": "B", "status": "open", "labels": ["z", "a"]},

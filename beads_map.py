@@ -26,10 +26,19 @@ except ImportError:  # pragma: no cover - Windows is not currently supported.
     fcntl = None
 
 
-__version__ = "0.1.6"
+__version__ = "0.1.7"
 BLOCKING_DEPENDENCIES = {"blocks", "conditional-blocks", "waits-for"}
 DISPLAYED_DEPENDENCIES = BLOCKING_DEPENDENCIES | {"discovered-from", "parent-child"}
 VIEW_STATES = {"completed", "in-progress", "ready", "blocked", "deferred"}
+NON_HUMAN_ISSUE_TYPES = {
+    "agent",
+    "gate",
+    "infrastructure",
+    "memory",
+    "message",
+    "molecule",
+    "template",
+}
 MINIMUM_BD_VERSION = (1, 1, 0)
 MAXIMUM_BD_VERSION = (2, 0, 0)
 ROOT = Path(__file__).resolve().parent
@@ -375,9 +384,12 @@ def normalize_graph(repository: Path, issues: list[dict]) -> dict:
 
     blockers: dict[str, list[str]] = {issue_id: [] for issue_id in by_id}
     dependents: dict[str, list[str]] = {issue_id: [] for issue_id in by_id}
+    direct_children: dict[str, set[str]] = {issue_id: set() for issue_id in by_id}
     for edge in (edge for edge in edges if edge["kind"] == "blocking"):
         blockers[edge["target"]].append(edge["source"])
         dependents[edge["source"]].append(edge["target"])
+    for edge in (edge for edge in edges if edge["kind"] == "hierarchy"):
+        direct_children[edge["source"]].add(edge["target"])
 
     nodes = []
     for issue_id, issue in by_id.items():
@@ -400,21 +412,38 @@ def normalize_graph(repository: Path, issues: list[dict]) -> dict:
         else:
             state = "ready"
 
-        nodes.append(
-            {
-                "id": issue_id,
-                "title": issue.get("title") or issue_id,
-                "description": issue.get("description") or "",
-                "type": issue.get("issue_type") or "work item",
-                "rawStatus": raw_status,
-                "state": state,
-                "labels": sorted(issue.get("labels") or []),
-                "assignee": issue.get("assignee") or "",
-                "blockers": sorted(blockers[issue_id]),
-                "activeBlockers": sorted(active_blockers),
-                "dependents": sorted(dependents[issue_id]),
-            }
-        )
+        issue_type = str(issue.get("issue_type") or "work item")
+        node = {
+            "id": issue_id,
+            "title": issue.get("title") or issue_id,
+            "description": issue.get("description") or "",
+            "type": issue_type,
+            "rawStatus": raw_status,
+            "state": state,
+            "labels": sorted(issue.get("labels") or []),
+            "assignee": issue.get("assignee") or "",
+            "blockers": sorted(blockers[issue_id]),
+            "activeBlockers": sorted(active_blockers),
+            "dependents": sorted(dependents[issue_id]),
+        }
+        if issue_type.lower() == "epic":
+            human_children = [
+                by_id[child_id]
+                for child_id in direct_children[issue_id]
+                if str(by_id[child_id].get("issue_type") or "work item").lower()
+                not in NON_HUMAN_ISSUE_TYPES
+            ]
+            if human_children:
+                completed_children = sum(
+                    str(child.get("status")) == "closed"
+                    and not (child.get("defer_until") or child.get("deferred_until"))
+                    for child in human_children
+                )
+                node["epicProgress"] = {
+                    "completed": completed_children,
+                    "total": len(human_children),
+                }
+        nodes.append(node)
 
     return {
         "repository": repository.name,
