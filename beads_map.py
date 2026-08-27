@@ -4,22 +4,32 @@
 from __future__ import annotations
 
 import argparse
+from contextlib import contextmanager
+from datetime import datetime, timezone
+import hashlib
 import json
 import os
 import re
 import subprocess
 import sys
+import tempfile
 import threading
 import webbrowser
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from typing import Sequence
-from urllib.parse import urlsplit
+from typing import Callable, Iterator, Sequence
+from urllib.parse import parse_qs, urlsplit
+
+try:
+    import fcntl
+except ImportError:  # pragma: no cover - Windows is not currently supported.
+    fcntl = None
 
 
-__version__ = "0.1.1"
+__version__ = "0.1.2"
 BLOCKING_DEPENDENCIES = {"blocks", "conditional-blocks", "waits-for"}
 DISPLAYED_DEPENDENCIES = BLOCKING_DEPENDENCIES | {"discovered-from", "parent-child"}
+VIEW_STATES = {"completed", "in-progress", "ready", "blocked", "deferred"}
 MINIMUM_BD_VERSION = (1, 1, 0)
 MAXIMUM_BD_VERSION = (2, 0, 0)
 ROOT = Path(__file__).resolve().parent
@@ -127,22 +137,37 @@ class RepositoryCatalog:
         self._lock = threading.Lock()
         self._repositories: list[Path] = []
         self._selected: Path | None = None
+        self._views: dict[str, dict] = {}
         self._load()
 
-    def _load(self) -> None:
+    def _load(self, *, strict: bool = False) -> None:
+        self._repositories = []
+        self._selected = None
+        self._views = {}
         if not self.path.is_file():
             return
         try:
             payload = json.loads(self.path.read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError) as error:
+            if strict:
+                raise BeadsError(f"Could not read repository catalog: {error}") from error
             print(f"Could not read repository catalog: {error}", file=sys.stderr)
             return
         if not isinstance(payload, dict):
+            if strict:
+                raise BeadsError("Could not read repository catalog: expected a JSON object.")
             print("Could not read repository catalog: expected a JSON object.", file=sys.stderr)
             return
 
-        for value in payload.get("repositories", []):
+        repositories = payload.get("repositories", [])
+        if not isinstance(repositories, list):
+            if strict:
+                raise BeadsError("Could not read repository catalog: repositories must be a list.")
+            repositories = []
+        for value in repositories:
             if not isinstance(value, str):
+                continue
+            if not value.strip():
                 continue
             repository = Path(value).expanduser().resolve()
             if repository not in self._repositories:
@@ -154,27 +179,86 @@ class RepositoryCatalog:
                 self._selected = candidate
         if self._selected is None and self._repositories:
             self._selected = self._repositories[0]
+        views = payload.get("views", {})
+        if isinstance(views, dict):
+            for repository in self._repositories:
+                view = views.get(str(repository))
+                if isinstance(view, dict):
+                    self._views[str(repository)] = self._validated_view(view)
+
+    @staticmethod
+    def _validated_view(view: dict) -> dict:
+        normalized: dict = {}
+        zoom = view.get("zoom")
+        if isinstance(zoom, (int, float)) and not isinstance(zoom, bool):
+            normalized["zoom"] = min(2.0, max(0.35, float(zoom)))
+        for field in ("scrollLeft", "scrollTop"):
+            value = view.get(field)
+            if isinstance(value, (int, float)) and not isinstance(value, bool):
+                normalized[field] = min(10_000_000.0, max(0.0, float(value)))
+        selected_id = view.get("selectedId")
+        if isinstance(selected_id, str) and len(selected_id) <= 512:
+            normalized["selectedId"] = selected_id
+        visible_states = view.get("visibleStates")
+        if isinstance(visible_states, list):
+            normalized["visibleStates"] = sorted(
+                {state for state in visible_states if state in VIEW_STATES}
+            )
+        return normalized
+
+    @contextmanager
+    def _disk_lock(self) -> Iterator[None]:
+        self.path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+        lock_path = self.path.with_name(f"{self.path.name}.lock")
+        with lock_path.open("a+", encoding="utf-8") as lock_file:
+            if os.name != "nt":
+                lock_path.chmod(0o600)
+            if fcntl is not None:
+                fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX)
+            try:
+                yield
+            finally:
+                if fcntl is not None:
+                    fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
 
     def _save(self) -> None:
-        self.path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
-        temporary = self.path.with_suffix(f"{self.path.suffix}.tmp")
-        temporary.write_text(
-            json.dumps(
-                {
-                    "repositories": [str(path) for path in self._repositories],
-                    "selected": str(self._selected) if self._selected else None,
-                },
-                indent=2,
-            )
-            + "\n",
-            encoding="utf-8",
+        payload = {
+            "version": 1,
+            "repositories": [str(path) for path in self._repositories],
+            "selected": str(self._selected) if self._selected else None,
+            "views": self._views,
+        }
+        descriptor, temporary_name = tempfile.mkstemp(
+            dir=self.path.parent,
+            prefix=f".{self.path.name}.",
+            suffix=".tmp",
         )
-        if os.name != "nt":
-            temporary.chmod(0o600)
-        temporary.replace(self.path)
+        temporary = Path(temporary_name)
+        try:
+            if os.name != "nt":
+                os.fchmod(descriptor, 0o600)
+            with os.fdopen(descriptor, "w", encoding="utf-8") as stream:
+                descriptor = -1
+                json.dump(payload, stream, indent=2)
+                stream.write("\n")
+                stream.flush()
+                os.fsync(stream.fileno())
+            os.replace(temporary, self.path)
+        except Exception:
+            if descriptor >= 0:
+                os.close(descriptor)
+            temporary.unlink(missing_ok=True)
+            raise
+
+    @contextmanager
+    def _current_state(self) -> Iterator[None]:
+        with self._lock:
+            with self._disk_lock():
+                self._load(strict=True)
+                yield
 
     def add(self, repository: Path, *, select: bool = True) -> None:
-        with self._lock:
+        with self._current_state():
             if repository not in self._repositories:
                 self._repositories.append(repository)
             if select or self._selected is None:
@@ -182,38 +266,47 @@ class RepositoryCatalog:
             self._save()
 
     def select(self, repository: Path) -> None:
-        with self._lock:
+        with self._current_state():
             if repository not in self._repositories:
                 raise BeadsError("Repository is not in the catalog.")
             self._selected = repository
             self._save()
 
     def remove(self, repository: Path) -> None:
-        with self._lock:
+        with self._current_state():
             if repository not in self._repositories:
                 raise BeadsError("Repository is not in the catalog.")
             self._repositories.remove(repository)
+            self._views.pop(str(repository), None)
             if self._selected == repository:
                 self._selected = self._repositories[0] if self._repositories else None
             self._save()
 
     def contains(self, repository: Path) -> bool:
-        with self._lock:
+        with self._current_state():
             return repository in self._repositories
 
     def selected(self) -> Path | None:
-        with self._lock:
+        with self._current_state():
             return self._selected
 
     def payload(self) -> dict:
-        with self._lock:
+        with self._current_state():
             return {
                 "repositories": [
                     {"name": path.name or str(path), "path": str(path)}
                     for path in self._repositories
                 ],
                 "selected": str(self._selected) if self._selected else None,
+                "views": self._views,
             }
+
+    def save_view(self, repository: Path, view: dict) -> None:
+        with self._current_state():
+            if repository not in self._repositories:
+                raise BeadsError("Repository is not in the catalog.")
+            self._views[str(repository)] = self._validated_view(view)
+            self._save()
 
 
 def export_issues(repository: Path) -> list[dict]:
@@ -306,24 +399,81 @@ def normalize_graph(repository: Path, issues: list[dict]) -> dict:
                 "type": issue.get("issue_type") or "work item",
                 "rawStatus": raw_status,
                 "state": state,
-                "labels": issue.get("labels") or [],
+                "labels": sorted(issue.get("labels") or []),
                 "assignee": issue.get("assignee") or "",
-                "blockers": blockers[issue_id],
-                "activeBlockers": active_blockers,
-                "dependents": dependents[issue_id],
+                "blockers": sorted(blockers[issue_id]),
+                "activeBlockers": sorted(active_blockers),
+                "dependents": sorted(dependents[issue_id]),
             }
         )
 
     return {
         "repository": repository.name,
         "path": str(repository),
-        "nodes": nodes,
-        "edges": edges,
+        "nodes": sorted(nodes, key=lambda node: node["id"]),
+        "edges": sorted(
+            edges,
+            key=lambda edge: (edge["source"], edge["target"], edge["type"]),
+        ),
     }
+
+
+def graph_hash(graph: dict) -> str:
+    canonical = json.dumps(graph, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
+class SnapshotCoordinator:
+    def __init__(self, loader: Callable[[Path], dict] | None = None):
+        self._loader = loader or (
+            lambda repository: normalize_graph(repository, export_issues(repository))
+        )
+        self._locks_lock = threading.Lock()
+        self._repository_locks: dict[Path, threading.Lock] = {}
+        self._snapshots: dict[Path, tuple[dict, str, str]] = {}
+
+    def _lock_for(self, repository: Path) -> threading.Lock:
+        with self._locks_lock:
+            return self._repository_locks.setdefault(repository, threading.Lock())
+
+    def refresh(self, repository: Path, current_hash: str | None = None) -> dict:
+        with self._lock_for(repository):
+            previous = self._snapshots.get(repository)
+            try:
+                graph = self._loader(repository)
+                digest = graph_hash(graph)
+                updated_at = datetime.now(timezone.utc).isoformat()
+                self._snapshots[repository] = (graph, digest, updated_at)
+                stale = False
+                error_message = None
+            except (BeadsError, OSError) as error:
+                if previous is None:
+                    raise
+                graph, digest, updated_at = previous
+                stale = True
+                error_message = str(error)
+
+            freshness = {
+                "stale": stale,
+                "error": error_message,
+                "updatedAt": updated_at,
+            }
+            if current_hash == digest:
+                return {
+                    "unchanged": True,
+                    "snapshotHash": digest,
+                    "freshness": freshness,
+                }
+            return {
+                **graph,
+                "snapshotHash": digest,
+                "freshness": freshness,
+            }
 
 
 class AppHandler(BaseHTTPRequestHandler):
     catalog: RepositoryCatalog
+    snapshots: SnapshotCoordinator
 
     def do_GET(self) -> None:  # noqa: N802 - BaseHTTPRequestHandler API
         path = urlsplit(self.path).path
@@ -344,16 +494,16 @@ class AppHandler(BaseHTTPRequestHandler):
 
     def do_POST(self) -> None:  # noqa: N802 - BaseHTTPRequestHandler API
         path = urlsplit(self.path).path
+        if path.startswith("/api/") and self.headers.get("X-Beads-Map") != "1":
+            self._send_json(403, {"error": "Local preference update was not authorized."})
+            return
         if path == "/api/repositories/pick":
-            if self.headers.get("X-Beads-Map") != "1":
-                self._send_json(403, {"error": "Folder picker request was not authorized."})
-                return
             try:
                 repository = pick_repository()
                 if repository is None:
                     self._send_json(200, {"cancelled": True})
                     return
-                graph = normalize_graph(repository, export_issues(repository))
+                graph = self.snapshots.refresh(repository)
                 self.catalog.add(repository)
                 self._send_json(200, {"catalog": self.catalog.payload(), "graph": graph})
             except (BeadsError, OSError) as error:
@@ -362,8 +512,15 @@ class AppHandler(BaseHTTPRequestHandler):
         try:
             payload = self._read_json()
             repository = resolve_repository(str(payload.get("path") or ""))
+            if path == "/api/view":
+                view = payload.get("view")
+                if not isinstance(view, dict):
+                    raise ValueError("View must be a JSON object.")
+                self.catalog.save_view(repository, view)
+                self._send_json(200, {"saved": True})
+                return
             if path == "/api/repositories":
-                graph = normalize_graph(repository, export_issues(repository))
+                graph = self.snapshots.refresh(repository)
                 self.catalog.add(repository)
                 self._send_json(200, {"catalog": self.catalog.payload(), "graph": graph})
                 return
@@ -371,7 +528,7 @@ class AppHandler(BaseHTTPRequestHandler):
                 if not self.catalog.contains(repository):
                     self._send_json(404, {"error": "Repository is not in the catalog."})
                     return
-                graph = normalize_graph(repository, export_issues(repository))
+                graph = self.snapshots.refresh(repository)
                 self.catalog.select(repository)
                 self._send_json(200, {"catalog": self.catalog.payload(), "graph": graph})
                 return
@@ -383,6 +540,9 @@ class AppHandler(BaseHTTPRequestHandler):
     def do_DELETE(self) -> None:  # noqa: N802 - BaseHTTPRequestHandler API
         if urlsplit(self.path).path != "/api/repositories":
             self.send_error(404)
+            return
+        if self.headers.get("X-Beads-Map") != "1":
+            self._send_json(403, {"error": "Local preference update was not authorized."})
             return
         try:
             payload = self._read_json()
@@ -401,9 +561,11 @@ class AppHandler(BaseHTTPRequestHandler):
             self._send_json(404, {"error": "No repository is selected. Add one to begin."})
             return
         try:
-            payload = normalize_graph(repository, export_issues(repository))
+            query = parse_qs(urlsplit(self.path).query)
+            current_hash = query.get("hash", [None])[0]
+            payload = self.snapshots.refresh(repository, current_hash)
             self._send_json(200, payload)
-        except BeadsError as error:
+        except (BeadsError, OSError) as error:
             self._send_json(500, {"error": str(error)})
 
     def _read_json(self) -> dict:
@@ -492,6 +654,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         return 2
 
     catalog = RepositoryCatalog(default_catalog_path())
+    snapshots = SnapshotCoordinator()
     supplied = args.repositories
     if not supplied and catalog.selected() is None:
         supplied = ["."]
@@ -510,11 +673,12 @@ def main(argv: Sequence[str] | None = None) -> int:
     graph = None
     if selected is not None:
         try:
-            graph = normalize_graph(selected, export_issues(selected))
+            graph = snapshots.refresh(selected)
         except BeadsError as error:
             print(f"Could not read selected repository yet: {error}", file=sys.stderr)
 
     AppHandler.catalog = catalog
+    AppHandler.snapshots = snapshots
     try:
         server = create_server(args.port or 8765, strict=args.port is not None)
     except BeadsError as error:

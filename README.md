@@ -39,6 +39,12 @@ edge gutters. Solid edges are prerequisites, dashed edges are follow-on
 provenance, and dotted edges are parent-child hierarchy; only prerequisites
 affect Blocked state. Selecting a node shows its details. The status chips show
 or hide Completed, In progress, Ready, Blocked, and Deferred work. Drag empty
-canvas space to pan, or `Cmd`-drag vertically to zoom around the pointer. It
-does not write to Beads. The catalog stores paths only in the operating system's
-user configuration directory; it never stores issue data.
+canvas space to pan, or `Cmd`-drag vertically to zoom around the pointer. The
+graph checks for Beads changes every five seconds and skips redrawing when the
+snapshot is unchanged. If a read fails, the last good graph stays visible and
+is marked stale.
+
+It does not write to Beads. The catalog stores repository paths and per-repository
+view preferences in the operating system's user configuration directory; it
+never stores issue data. Catalog updates are locked and atomically replaced so
+two running Beads Map sessions do not lose one another's changes.

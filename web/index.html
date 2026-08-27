@@ -87,6 +87,8 @@
       font-size: 12px;
     }
     .legend { display: flex; flex-wrap: wrap; gap: 6px; margin-left: auto; }
+    .freshness { color: var(--ready); }
+    .freshness.stale { color: #c65353; font-weight: 650; }
     .legend button {
       display: inline-flex;
       align-items: center;
@@ -242,6 +244,7 @@
 
   <section class="summary" aria-label="Graph summary">
     <strong id="counts">Loading graph…</strong>
+    <span class="freshness" id="freshness" aria-live="polite"></span>
     <div class="legend" aria-label="Status filters">
       <button class="completed" type="button" data-state="completed" aria-pressed="true"><i class="dot"></i>Completed</button>
       <button class="in-progress" type="button" data-state="in-progress" aria-pressed="true"><i class="dot"></i>In progress</button>
@@ -284,7 +287,7 @@
         </dl>
         <div class="description" id="detail-description"></div>
       </div>
-      <div class="readonly">Read-only POC · Make changes with Beads outside this app, then refresh.</div>
+      <div class="readonly">Read-only POC · Changes made with Beads appear automatically.</div>
     </aside>
   </main>
 
@@ -303,6 +306,10 @@
     let currentRepository = null;
     let graphSize = { width: 760, height: 520 };
     let zoom = 1;
+    let snapshotHash = null;
+    let refreshing = false;
+    let catalogViews = {};
+    let viewSaveTimer = null;
 
     const el = id => document.getElementById(id);
     const svgElement = (name, attributes = {}) => {
@@ -319,6 +326,7 @@
     }
 
     function renderCatalog(catalog) {
+      catalogViews = catalog.views || {};
       const select = el('repository-select');
       select.replaceChildren();
       if (!catalog.repositories.length) {
@@ -354,6 +362,55 @@
       el('error').style.display = 'block';
     }
 
+    function updateFreshness(freshness = {}) {
+      const indicator = el('freshness');
+      indicator.classList.toggle('stale', Boolean(freshness.stale));
+      indicator.textContent = freshness.stale ? 'Showing last good snapshot' : 'Up to date';
+      indicator.title = freshness.error || (freshness.updatedAt
+        ? `Last read ${new Date(freshness.updatedAt).toLocaleTimeString()}`
+        : '');
+    }
+
+    function applyGraph(payload) {
+      snapshotHash = payload.snapshotHash || snapshotHash;
+      updateFreshness(payload.freshness);
+      if (!payload.unchanged) renderGraph(payload);
+    }
+
+    function currentView() {
+      const scroller = el('graph-scroller');
+      return {
+        zoom,
+        scrollLeft: scroller.scrollLeft,
+        scrollTop: scroller.scrollTop,
+        selectedId,
+        visibleStates: [...visibleStates],
+      };
+    }
+
+    async function persistView() {
+      window.clearTimeout(viewSaveTimer);
+      viewSaveTimer = null;
+      if (!currentRepository || location.protocol === 'file:') return;
+      const path = currentRepository;
+      const view = currentView();
+      catalogViews[path] = view;
+      try {
+        await requestJSON('/api/view', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'X-Beads-Map': '1' },
+          body: JSON.stringify({ path, view }),
+        });
+      } catch (error) {
+        showError(error, true);
+      }
+    }
+
+    function scheduleViewSave() {
+      window.clearTimeout(viewSaveTimer);
+      viewSaveTimer = window.setTimeout(persistView, 350);
+    }
+
     function clearDetails() {
       selectedId = null;
       el('details').hidden = true;
@@ -373,12 +430,14 @@
       else visibleStates.add(state);
       updateStatusControls();
       if (graphData) renderGraph(graphData);
+      scheduleViewSave();
     }
 
     function showAllStatuses() {
       ALL_STATES.forEach(state => visibleStates.add(state));
       updateStatusControls();
       if (graphData) renderGraph(graphData);
+      scheduleViewSave();
     }
 
     function rankNodes(nodes, edges) {
@@ -521,6 +580,7 @@
       const heightScale = Math.max(1, scroller.clientHeight - 24) / graphSize.height;
       setZoom(Math.min(1, widthScale, heightScale), false);
       scroller.scrollTo({ left: 0, top: 0 });
+      scheduleViewSave();
     }
 
     let canvasGesture = null;
@@ -573,14 +633,24 @@
         scroller.releasePointerCapture(event.pointerId);
       }
       canvasGesture = null;
+      scheduleViewSave();
     }
 
     function renderGraph(data) {
-      const repositoryChanged = currentRepository !== null && currentRepository !== data.path;
+      const repositoryChanged = currentRepository !== data.path;
+      let savedScroll = null;
       if (repositoryChanged) {
         clearDetails();
-        zoom = 1;
-        el('graph-scroller').scrollTo({ left: 0, top: 0 });
+        const view = catalogViews[data.path] || {};
+        zoom = view.zoom || 1;
+        selectedId = view.selectedId || null;
+        visibleStates.clear();
+        const savedStates = Array.isArray(view.visibleStates) ? view.visibleStates : ALL_STATES;
+        savedStates.forEach(state => {
+          if (ALL_STATES.includes(state)) visibleStates.add(state);
+        });
+        updateStatusControls();
+        savedScroll = { left: view.scrollLeft || 0, top: view.scrollTop || 0 };
       }
       currentRepository = data.path;
       graphData = data;
@@ -607,6 +677,7 @@
       graphSize = { width, height };
       svg.setAttribute('viewBox', `0 0 ${width} ${height}`);
       setZoom(zoom, false);
+      if (savedScroll) el('graph-scroller').scrollTo(savedScroll);
 
       const defs = svgElement('defs');
       const markerColors = {
@@ -683,7 +754,10 @@
           title.append(tspan);
         });
         group.append(title);
-        const activate = () => selectNode(node.id);
+        const activate = () => {
+          selectNode(node.id);
+          scheduleViewSave();
+        };
         group.addEventListener('click', activate);
         group.addEventListener('keydown', event => {
           if (event.key === 'Enter' || event.key === ' ') {
@@ -729,9 +803,10 @@
       el('detail-description').textContent = node.description;
     }
 
-    async function loadGraph() {
-      setBusy(true);
-      el('error').style.display = 'none';
+    async function loadGraph({ background = false } = {}) {
+      if (refreshing) return;
+      refreshing = true;
+      if (!background) setBusy(true);
       if (location.protocol === 'file:') {
         const appRoot = decodeURIComponent(location.pathname).replace(/\/web\/index\.html$/, '');
         const shellPath = appRoot.replaceAll('"', '\\"');
@@ -740,32 +815,37 @@
         el('workspace').hidden = true;
         el('error').textContent = `This page needs the local Beads Map server.\n\nRun this in Terminal:\ncd "${shellPath}"\npython3 beads_map.py .\n\nThen open http://127.0.0.1:8765`;
         el('error').style.display = 'block';
+        refreshing = false;
         return;
       }
       try {
-        const payload = await requestJSON('/api/graph');
+        const query = snapshotHash ? `?hash=${encodeURIComponent(snapshotHash)}` : '';
+        const payload = await requestJSON(`/api/graph${query}`);
+        el('error').style.display = 'none';
         el('workspace').hidden = false;
-        renderGraph(payload);
+        applyGraph(payload);
       } catch (error) {
         showError(error, Boolean(graphData));
       } finally {
-        setBusy(false);
+        refreshing = false;
+        if (!background) setBusy(false);
       }
     }
 
     async function chooseRepository(path) {
       if (!path || path === currentRepository) return;
+      await persistView();
       setBusy(true);
       el('error').style.display = 'none';
       try {
         const payload = await requestJSON('/api/repositories/select', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: { 'Content-Type': 'application/json', 'X-Beads-Map': '1' },
           body: JSON.stringify({ path }),
         });
         renderCatalog(payload.catalog);
         el('workspace').hidden = false;
-        renderGraph(payload.graph);
+        applyGraph(payload.graph);
       } catch (error) {
         el('repository-select').value = currentRepository || '';
         showError(error, Boolean(graphData));
@@ -785,7 +865,7 @@
         if (payload.cancelled) return;
         renderCatalog(payload.catalog);
         el('workspace').hidden = false;
-        renderGraph(payload.graph);
+        applyGraph(payload.graph);
       } catch (error) {
         showError(error, Boolean(graphData));
       } finally {
@@ -804,12 +884,13 @@
       try {
         const catalog = await requestJSON('/api/repositories', {
           method: 'DELETE',
-          headers: { 'Content-Type': 'application/json' },
+          headers: { 'Content-Type': 'application/json', 'X-Beads-Map': '1' },
           body: JSON.stringify({ path }),
         });
         renderCatalog(catalog);
         currentRepository = null;
         graphData = null;
+        snapshotHash = null;
         clearDetails();
         if (catalog.selected) await loadGraph();
         else {
@@ -846,15 +927,27 @@
       button.addEventListener('click', () => toggleStatus(button.dataset.state));
     });
     el('status-show-all').addEventListener('click', showAllStatuses);
-    el('zoom-out').addEventListener('click', () => setZoom(zoom - 0.15));
-    el('zoom-in').addEventListener('click', () => setZoom(zoom + 0.15));
+    el('zoom-out').addEventListener('click', () => {
+      setZoom(zoom - 0.15);
+      scheduleViewSave();
+    });
+    el('zoom-in').addEventListener('click', () => {
+      setZoom(zoom + 0.15);
+      scheduleViewSave();
+    });
     el('zoom-fit').addEventListener('click', fitGraph);
     el('graph-scroller').addEventListener('pointerdown', beginCanvasGesture);
     el('graph-scroller').addEventListener('pointermove', moveCanvasGesture);
     el('graph-scroller').addEventListener('pointerup', endCanvasGesture);
     el('graph-scroller').addEventListener('pointercancel', endCanvasGesture);
     el('graph-scroller').addEventListener('dragstart', event => event.preventDefault());
+    el('graph-scroller').addEventListener('scroll', scheduleViewSave);
     initialize();
+    window.setInterval(() => {
+      if (!document.hidden && currentRepository && !el('repository-select').disabled) {
+        loadGraph({ background: true });
+      }
+    }, 5000);
   </script>
 </body>
 </html>
