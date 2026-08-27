@@ -87,7 +87,10 @@
       color: var(--muted);
       font-size: 12px;
     }
-    .legend { display: flex; flex-wrap: wrap; gap: 6px; margin-left: auto; }
+    .legend { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-left: auto; }
+    .type-filters { display: inline-flex; flex-wrap: wrap; gap: 6px; }
+    .filter-divider { width: 1px; height: 20px; margin: 0 2px; background: var(--line); }
+    .filter-label { font-size: 10px; letter-spacing: .06em; text-transform: uppercase; }
     .freshness { color: var(--ready); }
     .freshness.stale { color: #c65353; font-weight: 650; }
     .legend button {
@@ -107,6 +110,7 @@
     }
     .legend button[aria-pressed="false"] { opacity: .42; }
     .legend button:hover { border-color: currentColor; }
+    .legend .type { color: var(--text); }
     .legend .show-all { color: var(--muted); }
     .legend .show-all:disabled { cursor: default; opacity: .42; }
     .dot { width: 8px; height: 8px; border-radius: 50%; background: currentColor; }
@@ -276,12 +280,15 @@
   <section class="summary" aria-label="Graph summary">
     <strong id="counts">Loading graph…</strong>
     <span class="freshness" id="freshness" aria-live="polite"></span>
-    <div class="legend" aria-label="Status filters">
+    <div class="legend" aria-label="Graph filters">
       <button class="completed" type="button" data-state="completed" aria-pressed="true"><i class="dot"></i>Completed</button>
       <button class="in-progress" type="button" data-state="in-progress" aria-pressed="true"><i class="dot"></i>In progress</button>
       <button class="ready" type="button" data-state="ready" aria-pressed="true"><i class="dot"></i>Ready</button>
       <button class="blocked" type="button" data-state="blocked" aria-pressed="true"><i class="dot"></i>Blocked</button>
       <button class="deferred" type="button" data-state="deferred" aria-pressed="true"><i class="dot"></i>Deferred</button>
+      <span class="filter-divider" aria-hidden="true"></span>
+      <span class="filter-label">Type</span>
+      <span class="type-filters" id="type-filters"></span>
       <button class="show-all" id="status-show-all" type="button" disabled>Show all</button>
     </div>
   </section>
@@ -341,6 +348,8 @@
     const MAX_ZOOM = 2;
     const ALL_STATES = ['completed', 'in-progress', 'ready', 'blocked', 'deferred'];
     const visibleStates = new Set(ALL_STATES);
+    const visibleTypes = new Set();
+    let availableTypes = [];
     let graphData = null;
     let selectedId = null;
     let currentRepository = null;
@@ -429,6 +438,7 @@
         scrollTop: scroller.scrollTop,
         selectedId,
         visibleStates: [...visibleStates],
+        visibleTypes: [...visibleTypes],
       };
     }
 
@@ -620,7 +630,32 @@
       document.querySelectorAll('[data-state]').forEach(button => {
         button.setAttribute('aria-pressed', String(visibleStates.has(button.dataset.state)));
       });
-      el('status-show-all').disabled = visibleStates.size === ALL_STATES.length;
+      document.querySelectorAll('[data-type]').forEach(button => {
+        button.setAttribute('aria-pressed', String(visibleTypes.has(button.dataset.type)));
+      });
+      const allStatesVisible = visibleStates.size === ALL_STATES.length;
+      const allTypesVisible = availableTypes.every(type => visibleTypes.has(type));
+      el('status-show-all').disabled = allStatesVisible && allTypesVisible;
+    }
+
+    function typeLabel(type) {
+      return type.replaceAll('-', ' ').replaceAll('_', ' ').replace(/^./, value => value.toLocaleUpperCase());
+    }
+
+    function renderTypeControls() {
+      const container = el('type-filters');
+      container.replaceChildren();
+      availableTypes.forEach(type => {
+        const button = document.createElement('button');
+        button.className = 'type';
+        button.type = 'button';
+        button.dataset.type = type;
+        button.textContent = typeLabel(type);
+        button.setAttribute('aria-label', `Type: ${typeLabel(type)}`);
+        button.addEventListener('click', () => toggleType(type));
+        container.append(button);
+      });
+      updateStatusControls();
     }
 
     function toggleStatus(state) {
@@ -631,8 +666,17 @@
       scheduleViewSave();
     }
 
-    function showAllStatuses() {
+    function toggleType(type) {
+      if (visibleTypes.has(type)) visibleTypes.delete(type);
+      else visibleTypes.add(type);
+      updateStatusControls();
+      if (graphData) renderGraph(graphData);
+      scheduleViewSave();
+    }
+
+    function showAllFilters() {
       ALL_STATES.forEach(state => visibleStates.add(state));
+      availableTypes.forEach(type => visibleTypes.add(type));
       updateStatusControls();
       if (graphData) renderGraph(graphData);
       scheduleViewSave();
@@ -836,6 +880,9 @@
 
     function renderGraph(data) {
       const repositoryChanged = currentRepository !== data.path;
+      const nextTypes = [...new Set(data.nodes.map(node => node.type))].sort();
+      const typeControlsChanged = nextTypes.length !== availableTypes.length
+        || nextTypes.some((type, index) => type !== availableTypes[index]);
       let savedScroll = null;
       if (repositoryChanged) {
         clearGraphSearch();
@@ -848,14 +895,29 @@
         savedStates.forEach(state => {
           if (ALL_STATES.includes(state)) visibleStates.add(state);
         });
-        updateStatusControls();
+        visibleTypes.clear();
+        const savedTypes = Array.isArray(view.visibleTypes) ? view.visibleTypes : nextTypes;
+        savedTypes.forEach(type => {
+          if (nextTypes.includes(type)) visibleTypes.add(type);
+        });
         savedScroll = { left: view.scrollLeft || 0, top: view.scrollTop || 0 };
+      } else {
+        const allPreviousTypesVisible = availableTypes.every(type => visibleTypes.has(type));
+        nextTypes.forEach(type => {
+          if (!availableTypes.includes(type) && allPreviousTypesVisible) visibleTypes.add(type);
+        });
+        [...visibleTypes].forEach(type => {
+          if (!nextTypes.includes(type)) visibleTypes.delete(type);
+        });
       }
+      availableTypes = nextTypes;
+      if (repositoryChanged || typeControlsChanged) renderTypeControls();
+      else updateStatusControls();
       currentRepository = data.path;
       graphData = data;
       const svg = el('graph');
       svg.replaceChildren();
-      const visibleNodes = data.nodes.filter(node => visibleStates.has(node.state));
+      const visibleNodes = data.nodes.filter(node => visibleStates.has(node.state) && visibleTypes.has(node.type));
       const visibleIds = new Set(visibleNodes.map(node => node.id));
       const visibleEdges = data.edges.filter(edge => visibleIds.has(edge.source) && visibleIds.has(edge.target));
       const ranks = rankNodes(visibleNodes, visibleEdges);
@@ -1169,7 +1231,7 @@
     document.querySelectorAll('[data-state]').forEach(button => {
       button.addEventListener('click', () => toggleStatus(button.dataset.state));
     });
-    el('status-show-all').addEventListener('click', showAllStatuses);
+    el('status-show-all').addEventListener('click', showAllFilters);
     el('zoom-out').addEventListener('click', () => {
       setZoom(zoom - 0.15);
       scheduleViewSave();

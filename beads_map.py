@@ -26,7 +26,7 @@ except ImportError:  # pragma: no cover - Windows is not currently supported.
     fcntl = None
 
 
-__version__ = "0.1.5"
+__version__ = "0.1.6"
 BLOCKING_DEPENDENCIES = {"blocks", "conditional-blocks", "waits-for"}
 DISPLAYED_DEPENDENCIES = BLOCKING_DEPENDENCIES | {"discovered-from", "parent-child"}
 VIEW_STATES = {"completed", "in-progress", "ready", "blocked", "deferred"}
@@ -203,6 +203,15 @@ class RepositoryCatalog:
         if isinstance(visible_states, list):
             normalized["visibleStates"] = sorted(
                 {state for state in visible_states if state in VIEW_STATES}
+            )
+        visible_types = view.get("visibleTypes")
+        if isinstance(visible_types, list):
+            normalized["visibleTypes"] = sorted(
+                {
+                    value.strip()
+                    for value in visible_types
+                    if isinstance(value, str) and value.strip() and len(value) <= 128
+                }
             )
         return normalized
 

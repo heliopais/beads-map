@@ -257,6 +257,7 @@ class RepositoryCatalogTests(unittest.TestCase):
                 "scrollTop": 80,
                 "selectedId": "beads-map-ow0",
                 "visibleStates": ["ready", "in-progress"],
+                "visibleTypes": ["feature", "task", "feature", "", 7],
                 "nodes": [{"id": "must-not-persist"}],
             },
         )
@@ -266,6 +267,7 @@ class RepositoryCatalogTests(unittest.TestCase):
         self.assertEqual(view["zoom"], 1.4)
         self.assertEqual(view["selectedId"], "beads-map-ow0")
         self.assertEqual(view["visibleStates"], ["in-progress", "ready"])
+        self.assertEqual(view["visibleTypes"], ["feature", "task"])
         self.assertNotIn("nodes", view)
         if beads_map.os.name != "nt":
             mode = stat.S_IMODE(self.catalog_path.stat().st_mode)
