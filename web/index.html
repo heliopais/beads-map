@@ -514,13 +514,20 @@
       const epic = graphData?.nodes.find(node => node.id === id && node.type === 'epic');
       if (!epic) return;
       if (!epicScopeId) {
+        void persistView();
         const scroller = el('graph-scroller');
         fullMapView = {
           zoom,
           scrollLeft: scroller.scrollLeft,
           scrollTop: scroller.scrollTop,
           selectedId,
+          visibleStates: [...visibleStates],
+          visibleTypes: [...visibleTypes],
         };
+        visibleStates.clear();
+        ALL_STATES.forEach(state => visibleStates.add(state));
+        visibleTypes.clear();
+        availableTypes.forEach(type => visibleTypes.add(type));
       }
       epicScopeId = id;
       clearDetails();
@@ -537,6 +544,10 @@
       if (view) {
         zoom = view.zoom;
         selectedId = view.selectedId;
+        visibleStates.clear();
+        view.visibleStates.forEach(state => visibleStates.add(state));
+        visibleTypes.clear();
+        view.visibleTypes.forEach(type => visibleTypes.add(type));
       }
       renderGraph(graphData);
       if (view) el('graph-scroller').scrollTo({ left: view.scrollLeft, top: view.scrollTop });
