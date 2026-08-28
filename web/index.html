@@ -94,6 +94,7 @@
     .freshness { color: var(--ready); }
     .freshness.stale { color: #c65353; font-weight: 650; }
     .change-summary { color: var(--focus); font-weight: 650; }
+    .export-status { color: var(--ready); }
     .legend button {
       display: inline-flex;
       align-items: center;
@@ -154,6 +155,7 @@
       cursor: pointer;
     }
     .tool-button:hover { border-color: var(--focus); }
+    .tool-button:disabled { cursor: default; opacity: .45; }
     .search-controls { margin-left: auto; }
     .search-input {
       width: min(220px, 24vw);
@@ -428,6 +430,8 @@
         </div>
         <div class="graph-tools">
           <button class="tool-button" id="epic-overview-open" type="button">Epics</button>
+          <button class="tool-button" id="export-graph" type="button" disabled>Export SVG</button>
+          <span class="export-status" id="export-status" role="status"></span>
           <span>Left → right · Double-click an epic or use ⤢ to open its sub-map</span>
           <div class="search-controls" role="search" aria-label="Find work items">
             <input class="search-input" id="graph-search" type="search" placeholder="Search title or ID" autocomplete="off" aria-label="Search work items by title or ID">
@@ -575,6 +579,7 @@
       el('repository-add').disabled = busy;
       el('repository-remove').disabled = busy || !select.value;
       el('refresh').disabled = busy || !select.value;
+      el('export-graph').disabled = busy || !graphData;
     }
 
     function showError(error, keepGraph = false) {
@@ -822,6 +827,59 @@
     function openEpicOverview() {
       renderEpicOverview();
       el('epic-overview').showModal();
+    }
+
+    function exportCurrentGraph() {
+      if (!graphData) return;
+      const source = el('graph');
+      const clone = source.cloneNode(true);
+      const sourceElements = [source, ...source.querySelectorAll('*')];
+      const cloneElements = [clone, ...clone.querySelectorAll('*')];
+      const inlineProperties = [
+        'fill', 'stroke', 'stroke-width', 'stroke-dasharray', 'stroke-linecap',
+        'stroke-linejoin', 'opacity', 'font-family', 'font-size', 'font-weight',
+        'letter-spacing', 'text-transform', 'filter',
+      ];
+      sourceElements.forEach((element, index) => {
+        const target = cloneElements[index];
+        if (!target) return;
+        const computed = getComputedStyle(element);
+        const inline = inlineProperties
+          .map(property => `${property}:${computed.getPropertyValue(property)}`)
+          .join(';');
+        target.setAttribute('style', inline);
+      });
+      clone.setAttribute('xmlns', SVG);
+      clone.setAttribute('width', graphSize.width);
+      clone.setAttribute('height', graphSize.height);
+      clone.querySelectorAll('.submap-trigger').forEach(trigger => trigger.remove());
+      clone.querySelectorAll('[tabindex]').forEach(element => element.removeAttribute('tabindex'));
+      const background = svgElement('rect', {
+        width: graphSize.width,
+        height: graphSize.height,
+        fill: getComputedStyle(document.documentElement).getPropertyValue('--surface').trim(),
+      });
+      clone.insertBefore(background, clone.firstChild);
+      const title = svgElement('title');
+      title.textContent = `${graphData.repository} Beads Map${epicScopeId ? ` · ${epicScopeId}` : ''}`;
+      clone.insertBefore(title, clone.firstChild);
+      const serialized = `<?xml version="1.0" encoding="UTF-8"?>\n${new XMLSerializer().serializeToString(clone)}`;
+      const blob = new Blob([serialized], { type: 'image/svg+xml;charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      const repository = graphData.repository.replace(/[^a-z0-9._-]+/gi, '-').replace(/^-|-$/g, '') || 'repository';
+      const scope = epicScopeId ? `-${epicScopeId.replace(/[^a-z0-9._-]+/gi, '-')}` : '';
+      link.href = url;
+      link.download = `${repository}${scope}-beads-map.svg`;
+      link.hidden = true;
+      document.body.append(link);
+      link.click();
+      link.remove();
+      const exportedNodes = clone.querySelectorAll('.node').length;
+      const exportedEdges = clone.querySelectorAll('.edge').length;
+      el('export-status').textContent = `Exported ${exportedNodes} issues · ${exportedEdges} relationships`;
+      window.setTimeout(() => { el('export-status').textContent = ''; }, 3000);
+      window.setTimeout(() => URL.revokeObjectURL(url), 1000);
     }
 
     function renderSearchState() {
@@ -1841,6 +1899,7 @@
     el('detail-copy').addEventListener('click', copySelectedId);
     el('ready-only').addEventListener('click', showReadyWork);
     el('epic-overview-open').addEventListener('click', openEpicOverview);
+    el('export-graph').addEventListener('click', exportCurrentGraph);
     el('epic-overview').addEventListener('click', event => {
       if (event.target === el('epic-overview')) el('epic-overview').close();
     });

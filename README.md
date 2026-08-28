@@ -62,7 +62,8 @@ direct-child progress; select an epic to reveal and center it, or open its
 sub-map directly. Drag empty
 canvas space to pan, or `Cmd`-drag vertically to zoom around the pointer. The
 minimap appears when the graph extends beyond the viewport; click or drag it to
-navigate the larger canvas. The
+navigate the larger canvas. Export SVG downloads the currently rendered scope
+and filters with resolved styling entirely in the browser. The
 graph checks for Beads changes every five seconds and skips redrawing when the
 snapshot is unchanged. If a read fails, the last good graph stays visible and
 is marked stale. After a successful refresh, added, newly completed, and
