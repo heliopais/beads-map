@@ -219,6 +219,11 @@
     .node.search-current rect:first-child { stroke: var(--focus); stroke-width: 3.2; }
     .node-title { fill: var(--text); font-size: 13px; font-weight: 600; }
     .node-meta { fill: var(--muted); font-size: 10px; letter-spacing: .06em; text-transform: uppercase; }
+    .submap-trigger { cursor: pointer; outline: none; }
+    .submap-trigger rect { fill: var(--surface-2); stroke: var(--epic); stroke-width: 1.2; }
+    .submap-trigger text { fill: var(--epic); font-size: 15px; font-weight: 700; }
+    .submap-trigger:hover rect,
+    .submap-trigger:focus rect { fill: var(--surface); stroke: var(--focus); stroke-width: 2; }
     .graph-empty { fill: var(--muted); font-size: 15px; }
 
     aside {
@@ -306,7 +311,7 @@
           <strong id="graph-heading" aria-live="polite">Dependency graph</strong>
         </div>
         <div class="graph-tools">
-          <span>Left → right · Solid prerequisite · Dashed follow-on · Dotted hierarchy</span>
+          <span>Left → right · Double-click an epic or use ⤢ to open its sub-map</span>
           <div class="search-controls" role="search" aria-label="Find work items">
             <input class="search-input" id="graph-search" type="search" placeholder="Search title or ID" autocomplete="off" aria-label="Search work items by title or ID">
             <span class="search-count" id="search-count" aria-live="polite"></span>
@@ -900,7 +905,7 @@
     let canvasGesture = null;
 
     function beginCanvasGesture(event) {
-      if (event.button !== 0 || event.target.closest?.('.node')) return;
+      if (event.button !== 0 || event.target.closest?.('.node, .submap-trigger')) return;
       const scroller = el('graph-scroller');
       const bounds = scroller.getBoundingClientRect();
       canvasGesture = {
@@ -1145,6 +1150,33 @@
           }
         });
         svg.append(group);
+
+        if (node.type === 'epic' && node.id !== epicScopeId) {
+          const openSubmap = event => {
+            event.preventDefault();
+            event.stopPropagation();
+            enterEpicScope(node.id);
+          };
+          const trigger = svgElement('g', {
+            class: 'submap-trigger',
+            transform: `translate(${position.x + NODE_W - 34} ${position.y + 8})`,
+            tabindex: '0',
+            role: 'button',
+            'aria-label': `Open sub-map for ${node.title}`,
+          });
+          const tooltip = svgElement('title');
+          tooltip.textContent = `Open sub-map for ${node.title}`;
+          trigger.append(tooltip);
+          trigger.append(svgElement('rect', { width: 26, height: 26, rx: 6 }));
+          const icon = svgElement('text', { x: 13, y: 18, 'text-anchor': 'middle', 'aria-hidden': 'true' });
+          icon.textContent = '⤢';
+          trigger.append(icon);
+          trigger.addEventListener('click', openSubmap);
+          trigger.addEventListener('keydown', event => {
+            if (event.key === 'Enter' || event.key === ' ') openSubmap(event);
+          });
+          svg.append(trigger);
+        }
       });
 
       el('repository-select').value = data.path;
