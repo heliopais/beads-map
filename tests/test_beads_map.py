@@ -9,6 +9,8 @@ import tempfile
 import threading
 import unittest
 from pathlib import Path
+from urllib.error import HTTPError
+from urllib.request import Request, urlopen
 from unittest.mock import patch
 
 import beads_map
@@ -201,6 +203,88 @@ class ExportTests(unittest.TestCase):
                 beads_map.export_issues(ROOT)
 
 
+class MetadataUpdateTests(unittest.TestCase):
+    def valid_payload(self) -> dict:
+        return {
+            "repository": str(ROOT),
+            "issueId": "beads-map-123",
+            "snapshotHash": "a" * 64,
+            "fields": {
+                "title": "  Updated title  ",
+                "description": "Updated description",
+                "priority": 1,
+                "assignee": "  Helio  ",
+                "labels": ["beta", "alpha", "beta"],
+            },
+        }
+
+    def test_update_request_is_allowlisted_and_normalized(self) -> None:
+        repository, issue_id, snapshot_hash, fields = (
+            beads_map.validate_update_request(self.valid_payload())
+        )
+
+        self.assertEqual(repository, str(ROOT))
+        self.assertEqual(issue_id, "beads-map-123")
+        self.assertEqual(snapshot_hash, "a" * 64)
+        self.assertEqual(fields["title"], "Updated title")
+        self.assertEqual(fields["assignee"], "Helio")
+        self.assertEqual(fields["labels"], ["alpha", "beta"])
+
+    def test_update_request_rejects_unsupported_and_invalid_fields(self) -> None:
+        cases = []
+        unsupported = self.valid_payload()
+        unsupported["fields"] = {**unsupported["fields"], "status": "closed"}
+        cases.append(unsupported)
+        empty_title = self.valid_payload()
+        empty_title["fields"] = {**empty_title["fields"], "title": "   "}
+        cases.append(empty_title)
+        boolean_priority = self.valid_payload()
+        boolean_priority["fields"] = {**boolean_priority["fields"], "priority": True}
+        cases.append(boolean_priority)
+        invalid_label = self.valid_payload()
+        invalid_label["fields"] = {**invalid_label["fields"], "labels": ["bad\nlabel"]}
+        cases.append(invalid_label)
+
+        for payload in cases:
+            with self.subTest(payload=payload):
+                with self.assertRaises(ValueError):
+                    beads_map.validate_update_request(payload)
+
+    def test_bd_update_uses_one_argument_list_and_exact_label_delta(self) -> None:
+        fields = self.valid_payload()["fields"]
+        fields["title"] = "Updated title"
+        fields["assignee"] = ""
+        fields["description"] = ""
+        fields["labels"] = ["keep", "new"]
+        result = subprocess.CompletedProcess(["bd", "update"], 0, stdout="", stderr="")
+
+        with patch("beads_map.subprocess.run", return_value=result) as run:
+            beads_map.update_issue_metadata(
+                ROOT,
+                "beads-map-123",
+                fields,
+                {"labels": ["keep", "old"]},
+            )
+
+        command = run.call_args.args[0]
+        self.assertEqual(command[:5], ["bd", "-C", str(ROOT), "update", "beads-map-123"])
+        self.assertIn("--allow-empty-description", command)
+        self.assertIn("--add-label", command)
+        self.assertIn("new", command)
+        self.assertIn("--remove-label", command)
+        self.assertIn("old", command)
+        self.assertNotIn("shell", run.call_args.kwargs)
+        run.assert_called_once()
+
+    def test_bd_update_failure_is_readable(self) -> None:
+        fields = self.valid_payload()["fields"]
+        result = subprocess.CompletedProcess(
+            ["bd", "update"], 1, stdout="", stderr="database busy"
+        )
+        with patch("beads_map.subprocess.run", return_value=result):
+            with self.assertRaisesRegex(beads_map.BeadsError, "database busy"):
+                beads_map.update_issue_metadata(ROOT, "beads-map-123", fields, {})
+
 class SnapshotTests(unittest.TestCase):
     def test_unchanged_snapshot_returns_metadata_without_graph(self) -> None:
         graph = {"repository": "repo", "path": str(ROOT), "nodes": [], "edges": []}
@@ -265,6 +349,220 @@ class SnapshotTests(unittest.TestCase):
         self.assertFalse(first.is_alive())
         self.assertFalse(second.is_alive())
         self.assertEqual(maximum_active, 1)
+
+    def test_metadata_update_checks_hash_writes_and_returns_fresh_graph(self) -> None:
+        original = {
+            "repository": "repo",
+            "path": str(ROOT),
+            "nodes": [{"id": "item", "title": "Before", "labels": ["old"]}],
+            "edges": [],
+        }
+        updated = {
+            **original,
+            "nodes": [{"id": "item", "title": "After", "labels": ["new"]}],
+        }
+        graphs = iter([original, updated])
+        writes = []
+        coordinator = beads_map.SnapshotCoordinator(
+            lambda repository: next(graphs),
+            lambda *arguments: writes.append(arguments),
+        )
+
+        response = coordinator.update_issue(
+            ROOT,
+            "item",
+            beads_map.graph_hash(original),
+            {"title": "After", "labels": ["new"]},
+        )
+
+        self.assertEqual(len(writes), 1)
+        self.assertEqual(writes[0][1], "item")
+        self.assertEqual(response["nodes"][0]["title"], "After")
+        self.assertEqual(response["snapshotHash"], beads_map.graph_hash(updated))
+        self.assertFalse(response["freshness"]["stale"])
+
+    def test_metadata_update_rejects_conflict_before_write(self) -> None:
+        graph = {
+            "repository": "repo",
+            "path": str(ROOT),
+            "nodes": [{"id": "item"}],
+            "edges": [],
+        }
+        writes = []
+        coordinator = beads_map.SnapshotCoordinator(
+            lambda repository: graph,
+            lambda *arguments: writes.append(arguments),
+        )
+
+        with self.assertRaises(beads_map.SnapshotConflict) as raised:
+            coordinator.update_issue(ROOT, "item", "0" * 64, {})
+
+        self.assertEqual(raised.exception.snapshot_hash, beads_map.graph_hash(graph))
+        self.assertEqual(writes, [])
+
+    def test_metadata_update_rejects_unknown_issue_before_write(self) -> None:
+        graph = {
+            "repository": "repo",
+            "path": str(ROOT),
+            "nodes": [],
+            "edges": [],
+        }
+        writes = []
+        coordinator = beads_map.SnapshotCoordinator(
+            lambda repository: graph,
+            lambda *arguments: writes.append(arguments),
+        )
+
+        with self.assertRaises(beads_map.IssueNotFound):
+            coordinator.update_issue(ROOT, "missing", beads_map.graph_hash(graph), {})
+
+        self.assertEqual(writes, [])
+
+    def test_failed_post_write_refresh_keeps_preflight_snapshot(self) -> None:
+        graph = {
+            "repository": "repo",
+            "path": str(ROOT),
+            "nodes": [{"id": "item"}],
+            "edges": [],
+        }
+        outcomes = iter([graph, beads_map.BeadsError("refresh failed")])
+
+        def loader(repository: Path) -> dict:
+            outcome = next(outcomes)
+            if isinstance(outcome, Exception):
+                raise outcome
+            return outcome
+
+        coordinator = beads_map.SnapshotCoordinator(loader, lambda *arguments: None)
+        with self.assertRaisesRegex(beads_map.BeadsError, "refresh failed"):
+            coordinator.update_issue(ROOT, "item", beads_map.graph_hash(graph), {})
+
+        self.assertEqual(coordinator._snapshots[ROOT][0], graph)
+
+
+class MetadataUpdateEndpointTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.temporary_directory = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temporary_directory.cleanup)
+        self.repository = Path(self.temporary_directory.name).resolve()
+        catalog = beads_map.RepositoryCatalog(self.repository / "catalog.json")
+        catalog.add(self.repository)
+        self.state = {
+            "repository": self.repository.name,
+            "path": str(self.repository),
+            "nodes": [{"id": "item", "title": "Before", "labels": []}],
+            "edges": [],
+        }
+
+        def updater(repository: Path, issue_id: str, fields: dict, node: dict) -> None:
+            self.state = {
+                **self.state,
+                "nodes": [{**node, **fields}],
+            }
+
+        beads_map.AppHandler.catalog = catalog
+        beads_map.AppHandler.snapshots = beads_map.SnapshotCoordinator(
+            lambda repository: self.state,
+            updater,
+        )
+        self.server = beads_map.ThreadingHTTPServer(
+            ("127.0.0.1", 0), beads_map.AppHandler
+        )
+        self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
+        self.thread.start()
+        self.addCleanup(self.server.server_close)
+        self.addCleanup(self.server.shutdown)
+
+    def request(self, payload: dict, *, authorized: bool = True) -> tuple[int, dict]:
+        return self.request_bytes(json.dumps(payload).encode("utf-8"), authorized=authorized)
+
+    def request_bytes(self, body: bytes, *, authorized: bool = True) -> tuple[int, dict]:
+        headers = {"Content-Type": "application/json"}
+        if authorized:
+            headers["X-Beads-Map"] = "1"
+        request = Request(
+            f"http://127.0.0.1:{self.server.server_address[1]}/api/issues/update",
+            data=body,
+            headers=headers,
+            method="POST",
+        )
+        try:
+            response = urlopen(request, timeout=2)
+        except HTTPError as error:
+            return error.code, json.loads(error.read())
+        with response:
+            return response.status, json.loads(response.read())
+
+    def payload(self) -> dict:
+        return {
+            "repository": str(self.repository),
+            "issueId": "item",
+            "snapshotHash": beads_map.graph_hash(self.state),
+            "fields": {
+                "title": "After",
+                "description": "Description",
+                "priority": 2,
+                "assignee": "Helio",
+                "labels": ["edited"],
+            },
+        }
+
+    def test_endpoint_requires_header_and_selected_repository(self) -> None:
+        status, _ = self.request(self.payload(), authorized=False)
+        self.assertEqual(status, 403)
+
+        payload = self.payload()
+        payload["repository"] = str(ROOT)
+        status, _ = self.request(payload)
+        self.assertEqual(status, 404)
+
+    def test_endpoint_reports_validation_conflict_and_unknown_issue(self) -> None:
+        invalid = self.payload()
+        invalid["fields"] = {**invalid["fields"], "status": "closed"}
+        status, _ = self.request(invalid)
+        self.assertEqual(status, 400)
+
+        stale = self.payload()
+        stale["snapshotHash"] = "0" * 64
+        status, response = self.request(stale)
+        self.assertEqual(status, 409)
+        self.assertEqual(response["snapshotHash"], beads_map.graph_hash(self.state))
+
+        missing = self.payload()
+        missing["issueId"] = "missing"
+        status, _ = self.request(missing)
+        self.assertEqual(status, 404)
+
+    def test_endpoint_rejects_malformed_and_oversized_bodies(self) -> None:
+        status, _ = self.request_bytes(b"{")
+        self.assertEqual(status, 400)
+
+        status, _ = self.request_bytes(b"x" * 16_385)
+        self.assertEqual(status, 400)
+
+    def test_endpoint_reports_write_failure_without_changing_graph(self) -> None:
+        original = self.state
+
+        def fail_update(*arguments: object) -> None:
+            raise beads_map.BeadsError("database busy")
+
+        beads_map.AppHandler.snapshots = beads_map.SnapshotCoordinator(
+            lambda repository: self.state,
+            fail_update,
+        )
+        status, response = self.request(self.payload())
+
+        self.assertEqual(status, 500)
+        self.assertEqual(response["error"], "database busy")
+        self.assertIs(self.state, original)
+
+    def test_endpoint_returns_fresh_canonical_graph(self) -> None:
+        status, response = self.request(self.payload())
+
+        self.assertEqual(status, 200)
+        self.assertEqual(response["nodes"][0]["title"], "After")
+        self.assertEqual(response["nodes"][0]["labels"], ["edited"])
+        self.assertEqual(response["snapshotHash"], beads_map.graph_hash(self.state))
 
 
 class RepositoryCatalogTests(unittest.TestCase):

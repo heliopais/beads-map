@@ -331,6 +331,8 @@
     .detail-eyebrow-row { display: flex; align-items: center; gap: 8px; }
     .detail-eyebrow-row .eyebrow { min-width: 0; overflow-wrap: anywhere; }
     .detail-copy { margin-left: auto; flex: 0 0 auto; padding: 3px 7px; font-size: 10px; }
+    .detail-edit { flex: 0 0 auto; padding: 3px 7px; font-size: 10px; }
+    .detail-save-status { color: var(--ready); font-size: 10px; font-weight: 650; }
     aside h2 { margin: 8px 0 10px; font-size: 20px; line-height: 1.25; }
     aside h3 { margin: 18px 0 8px; color: var(--muted); font-size: 11px; letter-spacing: .06em; text-transform: uppercase; }
     .state {
@@ -366,6 +368,32 @@
     .selection-context { margin: -8px 0 16px; color: var(--muted); font-size: 11px; }
     .selection-context .upstream { color: var(--blocked); }
     .selection-context .downstream { color: var(--ready); }
+    .detail-edit-form { display: grid; gap: 13px; margin-top: 16px; }
+    .detail-edit-form[hidden] { display: none; }
+    .detail-field { display: grid; gap: 5px; color: var(--muted); font-size: 11px; font-weight: 650; }
+    .detail-field input, .detail-field select, .detail-field textarea {
+      width: 100%;
+      box-sizing: border-box;
+      padding: 8px 9px;
+      color: var(--text);
+      background: var(--surface-2);
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      font: inherit;
+      font-size: 12px;
+      font-weight: 400;
+    }
+    .detail-field textarea { min-height: 92px; resize: vertical; }
+    .detail-field input:focus, .detail-field select:focus, .detail-field textarea:focus {
+      border-color: var(--focus);
+      outline: 2px solid color-mix(in srgb, var(--focus) 25%, transparent);
+    }
+    .detail-help { color: var(--muted); font-size: 10px; font-weight: 400; }
+    .detail-stale { margin: 0; color: var(--blocked); font-size: 11px; }
+    .detail-form-error { margin: 0; color: #c65353; font-size: 11px; }
+    .detail-conflict-actions { display: flex; }
+    .detail-conflict-actions[hidden] { display: none; }
+    .detail-form-actions { display: flex; justify-content: flex-end; gap: 7px; }
     .readonly { margin-top: 18px; padding: 10px; border-radius: 8px; background: var(--surface-2); color: var(--muted); font-size: 11px; }
     .empty { color: var(--muted); }
     .error { display: none; margin: 20px; padding: 14px; border: 1px solid #c65353; border-radius: 8px; color: #c65353; background: var(--surface); white-space: pre-wrap; }
@@ -460,37 +488,71 @@
         <div class="detail-eyebrow-row">
           <div class="eyebrow"><span id="detail-type"></span> · <span id="detail-id"></span></div>
           <button class="tool-button detail-copy" id="detail-copy" type="button" aria-label="Copy bead ID">Copy ID</button>
+          <span class="detail-save-status" id="detail-save-status" role="status"></span>
+          <button class="tool-button detail-edit" id="detail-edit" type="button">Edit</button>
         </div>
-        <h2 id="detail-title"></h2>
-        <div class="state" id="detail-state"></div>
-        <div class="selection-context" id="selection-context" hidden>
-          ← <span class="upstream">Upstream</span> · <span class="downstream">Downstream</span> → · ↑/↓ cycle · Escape to clear
+        <div id="detail-view">
+          <h2 id="detail-title"></h2>
+          <div class="state" id="detail-state"></div>
+          <div class="selection-context" id="selection-context" hidden>
+            ← <span class="upstream">Upstream</span> · <span class="downstream">Downstream</span> → · ↑/↓ cycle · Escape to clear
+          </div>
+          <h3>Metadata</h3>
+          <dl>
+            <div><dt>Raw status</dt><dd id="detail-raw"></dd></div>
+            <div id="detail-progress-row" hidden><dt>Direct child progress</dt><dd id="detail-progress"></dd></div>
+            <div id="detail-priority-row" hidden><dt>Priority</dt><dd id="detail-priority"></dd></div>
+            <div id="detail-labels-row" hidden><dt>Labels</dt><dd id="detail-labels"></dd></div>
+            <div id="detail-assignee-row" hidden><dt>Assignee</dt><dd id="detail-assignee"></dd></div>
+            <div id="detail-created-row" hidden><dt>Created</dt><dd id="detail-created"></dd></div>
+            <div id="detail-updated-row" hidden><dt>Updated</dt><dd id="detail-updated"></dd></div>
+            <div id="detail-started-row" hidden><dt>Started</dt><dd id="detail-started"></dd></div>
+            <div id="detail-closed-row" hidden><dt>Closed</dt><dd id="detail-closed"></dd></div>
+          </dl>
+          <h3 id="detail-relationships-heading" hidden>Relationships</h3>
+          <dl id="detail-relationships" hidden>
+            <div id="detail-prerequisites-row" hidden><dt>Prerequisites</dt><dd class="related-list" id="detail-prerequisites"></dd></div>
+            <div id="detail-dependents-row" hidden><dt>Dependents</dt><dd class="related-list" id="detail-dependents"></dd></div>
+            <div id="detail-parent-row" hidden><dt>Parent</dt><dd class="related-list" id="detail-parent"></dd></div>
+            <div id="detail-children-row" hidden><dt>Children</dt><dd class="related-list" id="detail-children"></dd></div>
+            <div id="detail-discovered-row" hidden><dt>Discovered from</dt><dd class="related-list" id="detail-discovered"></dd></div>
+            <div id="detail-followons-row" hidden><dt>Follow-on work</dt><dd class="related-list" id="detail-followons"></dd></div>
+          </dl>
+          <h3 id="detail-description-heading" hidden>Description</h3>
+          <div class="description" id="detail-description" hidden></div>
         </div>
-        <h3>Metadata</h3>
-        <dl>
-          <div><dt>Raw status</dt><dd id="detail-raw"></dd></div>
-          <div id="detail-progress-row" hidden><dt>Direct child progress</dt><dd id="detail-progress"></dd></div>
-          <div id="detail-priority-row" hidden><dt>Priority</dt><dd id="detail-priority"></dd></div>
-          <div id="detail-labels-row" hidden><dt>Labels</dt><dd id="detail-labels"></dd></div>
-          <div id="detail-assignee-row" hidden><dt>Assignee</dt><dd id="detail-assignee"></dd></div>
-          <div id="detail-created-row" hidden><dt>Created</dt><dd id="detail-created"></dd></div>
-          <div id="detail-updated-row" hidden><dt>Updated</dt><dd id="detail-updated"></dd></div>
-          <div id="detail-started-row" hidden><dt>Started</dt><dd id="detail-started"></dd></div>
-          <div id="detail-closed-row" hidden><dt>Closed</dt><dd id="detail-closed"></dd></div>
-        </dl>
-        <h3 id="detail-relationships-heading" hidden>Relationships</h3>
-        <dl id="detail-relationships" hidden>
-          <div id="detail-prerequisites-row" hidden><dt>Prerequisites</dt><dd class="related-list" id="detail-prerequisites"></dd></div>
-          <div id="detail-dependents-row" hidden><dt>Dependents</dt><dd class="related-list" id="detail-dependents"></dd></div>
-          <div id="detail-parent-row" hidden><dt>Parent</dt><dd class="related-list" id="detail-parent"></dd></div>
-          <div id="detail-children-row" hidden><dt>Children</dt><dd class="related-list" id="detail-children"></dd></div>
-          <div id="detail-discovered-row" hidden><dt>Discovered from</dt><dd class="related-list" id="detail-discovered"></dd></div>
-          <div id="detail-followons-row" hidden><dt>Follow-on work</dt><dd class="related-list" id="detail-followons"></dd></div>
-        </dl>
-        <h3 id="detail-description-heading" hidden>Description</h3>
-        <div class="description" id="detail-description" hidden></div>
+        <form class="detail-edit-form" id="detail-edit-form" hidden novalidate>
+          <label class="detail-field">Title
+            <input id="edit-title" name="title" maxlength="500" required>
+          </label>
+          <label class="detail-field">Description
+            <textarea id="edit-description" name="description" maxlength="10000"></textarea>
+          </label>
+          <label class="detail-field">Priority
+            <select id="edit-priority" name="priority">
+              <option value="0">P0</option><option value="1">P1</option><option value="2">P2</option>
+              <option value="3">P3</option><option value="4">P4</option>
+            </select>
+          </label>
+          <label class="detail-field">Assignee
+            <input id="edit-assignee" name="assignee" maxlength="200" placeholder="Unassigned">
+          </label>
+          <label class="detail-field">Labels
+            <textarea id="edit-labels" name="labels" rows="4" aria-describedby="edit-labels-help"></textarea>
+            <span class="detail-help" id="edit-labels-help">One label per line. Blank lines are ignored.</span>
+          </label>
+          <p class="detail-stale" id="detail-edit-stale" role="status" hidden>Beads changed since editing began. Save will check for a conflict.</p>
+          <p class="detail-form-error" id="detail-form-error" role="alert" hidden></p>
+          <div class="detail-conflict-actions" id="detail-conflict-actions" hidden>
+            <button class="tool-button" id="detail-conflict-reload" type="button">Reload current values</button>
+          </div>
+          <div class="detail-form-actions">
+            <button class="tool-button" id="detail-edit-cancel" type="button">Cancel</button>
+            <button class="header-button" id="detail-edit-save" type="submit">Save</button>
+          </div>
+        </form>
       </div>
-      <div class="readonly">Read-only POC · Changes made with Beads appear automatically.</div>
+      <div class="readonly">Graph and workflow remain read-only · Approved metadata fields can be edited explicitly.</div>
     </aside>
   </main>
 
@@ -535,6 +597,7 @@
     let minimapGesture = null;
     let changeHighlights = new Map();
     let changeCueTimer = null;
+    let editSession = null;
 
     const el = id => document.getElementById(id);
     const svgElement = (name, attributes = {}) => {
@@ -546,7 +609,12 @@
     async function requestJSON(url, options = {}) {
       const response = await fetch(url, { cache: 'no-store', ...options });
       const payload = await response.json();
-      if (!response.ok) throw new Error(payload.error || 'Request failed');
+      if (!response.ok) {
+        const error = new Error(payload.error || 'Request failed');
+        error.status = response.status;
+        error.payload = payload;
+        throw error;
+      }
       return payload;
     }
 
@@ -657,6 +725,7 @@
         renderGraph(payload);
         showChangeSummary();
       }
+      updateEditStaleState();
     }
 
     function currentView() {
@@ -669,6 +738,181 @@
         visibleStates: [...visibleStates],
         visibleTypes: [...visibleTypes],
       };
+    }
+
+    function normalizedNodeFields(node) {
+      return {
+        title: String(node.title || '').trim(),
+        description: String(node.description || ''),
+        priority: Number.isInteger(node.priority) && node.priority >= 0 && node.priority <= 4
+          ? node.priority
+          : 2,
+        assignee: String(node.assignee || '').trim(),
+        labels: [...new Set((node.labels || []).map(label => String(label).trim()).filter(Boolean))].sort(),
+      };
+    }
+
+    function metadataFieldsFromForm({ report = false } = {}) {
+      const title = el('edit-title');
+      const labels = el('edit-labels');
+      title.setCustomValidity(title.value.trim() ? '' : 'Enter a title.');
+      const labelValues = labels.value.split(/\r?\n/).map(label => label.trim()).filter(Boolean);
+      const invalidLabel = labelValues.find(label => label.length > 100);
+      labels.setCustomValidity(invalidLabel ? 'Each label must contain at most 100 characters.' : '');
+      const form = el('detail-edit-form');
+      if (!form.checkValidity()) {
+        if (report) form.reportValidity();
+        return null;
+      }
+      return {
+        title: title.value.trim(),
+        description: el('edit-description').value,
+        priority: Number(el('edit-priority').value),
+        assignee: el('edit-assignee').value.trim(),
+        labels: [...new Set(labelValues)].sort(),
+      };
+    }
+
+    function editDraftChanged() {
+      if (!editSession) return false;
+      const fields = metadataFieldsFromForm();
+      return !fields || JSON.stringify(fields) !== JSON.stringify(editSession.originalFields);
+    }
+
+    function cancelMetadataEdit() {
+      editSession = null;
+      el('detail-edit-form').hidden = true;
+      el('detail-view').hidden = false;
+      el('detail-edit').hidden = false;
+      el('detail-copy').hidden = false;
+      el('detail-form-error').hidden = true;
+      el('detail-form-error').textContent = '';
+      el('detail-edit-stale').hidden = true;
+      el('detail-conflict-actions').hidden = true;
+      el('detail-edit-save').disabled = false;
+      el('detail-edit-save').textContent = 'Save';
+    }
+
+    function discardMetadataEdit(message = 'Discard your unsaved metadata changes?') {
+      if (!editSession) return true;
+      if (editDraftChanged() && !window.confirm(message)) return false;
+      cancelMetadataEdit();
+      return true;
+    }
+
+    function beginMetadataEdit() {
+      const node = graphData?.nodes.find(candidate => candidate.id === selectedId);
+      if (!node || editSession) return;
+      const fields = normalizedNodeFields(node);
+      editSession = {
+        repository: currentRepository,
+        issueId: node.id,
+        snapshotHash,
+        originalFields: fields,
+        saving: false,
+      };
+      el('edit-title').value = fields.title;
+      el('edit-description').value = fields.description;
+      el('edit-priority').value = String(fields.priority);
+      el('edit-assignee').value = fields.assignee;
+      el('edit-labels').value = fields.labels.join('\n');
+      el('detail-view').hidden = true;
+      el('detail-edit-form').hidden = false;
+      el('detail-edit').hidden = true;
+      el('detail-copy').hidden = true;
+      el('detail-form-error').hidden = true;
+      el('detail-conflict-actions').hidden = true;
+      el('detail-edit-stale').hidden = true;
+      el('detail-save-status').textContent = '';
+      el('edit-title').focus();
+      el('edit-title').select();
+    }
+
+    function updateEditStaleState() {
+      el('detail-edit-stale').hidden = !editSession || snapshotHash === editSession.snapshotHash;
+    }
+
+    function showEditError(message, { conflict = false } = {}) {
+      el('detail-form-error').textContent = message;
+      el('detail-form-error').hidden = false;
+      el('detail-conflict-actions').hidden = !conflict;
+    }
+
+    async function saveMetadataEdit(event) {
+      event.preventDefault();
+      if (!editSession || editSession.saving) return;
+      const fields = metadataFieldsFromForm({ report: true });
+      if (!fields) return;
+
+      const session = editSession;
+      session.saving = true;
+      el('detail-edit-save').disabled = true;
+      el('detail-edit-save').textContent = 'Saving…';
+      el('detail-form-error').hidden = true;
+      el('detail-conflict-actions').hidden = true;
+      try {
+        const payload = await requestJSON('/api/issues/update', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'X-Beads-Map': '1' },
+          body: JSON.stringify({
+            repository: session.repository,
+            issueId: session.issueId,
+            snapshotHash: session.snapshotHash,
+            fields,
+          }),
+        });
+        const issueId = session.issueId;
+        cancelMetadataEdit();
+        applyGraph(payload);
+        selectNode(issueId);
+        el('detail-save-status').textContent = 'Saved';
+        window.setTimeout(() => {
+          if (!editSession) el('detail-save-status').textContent = '';
+        }, 2500);
+      } catch (error) {
+        if (editSession !== session) return;
+        if (error.status === 409) {
+          showEditError('This bead changed after editing began. Your draft has been kept.', { conflict: true });
+        } else {
+          showEditError(`${error.message || 'Could not save this bead.'} Your draft has been kept.`);
+        }
+      } finally {
+        if (editSession === session) {
+          session.saving = false;
+          el('detail-edit-save').disabled = false;
+          el('detail-edit-save').textContent = 'Save';
+        }
+      }
+    }
+
+    async function reloadMetadataDraft() {
+      if (!editSession || editSession.saving) return;
+      const session = editSession;
+      el('detail-conflict-reload').disabled = true;
+      try {
+        const payload = await requestJSON('/api/graph');
+        applyGraph(payload);
+        const node = payload.nodes?.find(candidate => candidate.id === session.issueId);
+        if (!node) {
+          showEditError('The selected bead no longer exists. Cancel to leave this draft.');
+          return;
+        }
+        const fields = normalizedNodeFields(node);
+        session.snapshotHash = payload.snapshotHash;
+        session.originalFields = fields;
+        el('edit-title').value = fields.title;
+        el('edit-description').value = fields.description;
+        el('edit-priority').value = String(fields.priority);
+        el('edit-assignee').value = fields.assignee;
+        el('edit-labels').value = fields.labels.join('\n');
+        el('detail-form-error').hidden = true;
+        el('detail-conflict-actions').hidden = true;
+        updateEditStaleState();
+      } catch (error) {
+        showEditError(error.message || 'Could not reload current values.');
+      } finally {
+        el('detail-conflict-reload').disabled = false;
+      }
     }
 
     async function persistView() {
@@ -726,7 +970,7 @@
 
     function enterEpicScope(id) {
       const epic = graphData?.nodes.find(node => node.id === id && node.type === 'epic');
-      if (!epic) return;
+      if (!epic || !discardMetadataEdit('Discard your changes and open this epic sub-map?')) return false;
       if (!epicScopeId) {
         void persistView();
         const scroller = el('graph-scroller');
@@ -748,10 +992,12 @@
       zoom = 1;
       renderGraph(graphData);
       fitGraph();
+      return true;
     }
 
     function leaveEpicScope() {
-      if (!epicScopeId || !graphData) return;
+      if (!epicScopeId || !graphData) return false;
+      if (!discardMetadataEdit('Discard your changes and return to the full map?')) return false;
       const view = fullMapView;
       epicScopeId = null;
       fullMapView = null;
@@ -765,10 +1011,11 @@
       }
       renderGraph(graphData);
       if (view) el('graph-scroller').scrollTo({ left: view.scrollLeft, top: view.scrollTop });
+      return true;
     }
 
     function revealEpicFromOverview(epic) {
-      if (epicScopeId) leaveEpicScope();
+      if (epicScopeId && !leaveEpicScope()) return;
       visibleStates.add(epic.state);
       visibleTypes.add(epic.type);
       renderGraph(graphData);
@@ -1068,7 +1315,7 @@
     }
 
     function moveRelationshipSelection(id) {
-      selectNode(id, { preserveRelationshipNavigation: true });
+      if (!selectNode(id, { preserveRelationshipNavigation: true })) return;
       focusGraphNode(id);
       scheduleViewSave();
     }
@@ -1103,6 +1350,7 @@
     }
 
     function clearDetails() {
+      cancelMetadataEdit();
       selectedId = null;
       relationshipNavigation = null;
       el('details').hidden = true;
@@ -1565,7 +1813,10 @@
           group.append(cue);
         }
         const activate = () => {
-          if (selectedId === node.id) clearDetails();
+          if (selectedId === node.id) {
+            if (!discardMetadataEdit()) return;
+            clearDetails();
+          }
           else selectNode(node.id);
           scheduleViewSave();
         };
@@ -1622,7 +1873,8 @@
         ? `${scopedNodes.length} issues`
         : `${visibleNodes.length} of ${scopedNodes.length} issues`;
       el('counts').textContent = `${issueCount} · ${visibleEdges.length} relationships`;
-      if (selectedId && visibleIds.has(selectedId)) selectNode(selectedId);
+      if (selectedId && visibleIds.has(selectedId) && editSession?.issueId === selectedId) applyRelationshipContext();
+      else if (selectedId && visibleIds.has(selectedId)) selectNode(selectedId);
       else if (selectedId) clearDetails();
       updateGraphSearch(true);
     }
@@ -1636,7 +1888,7 @@
     function revealRelatedNode(id) {
       const related = graphData?.nodes.find(node => node.id === id);
       if (!related) return;
-      if (epicScopeId && !nodesInCurrentScope(graphData).some(node => node.id === id)) leaveEpicScope();
+      if (epicScopeId && !nodesInCurrentScope(graphData).some(node => node.id === id) && !leaveEpicScope()) return;
       if (!nodePositions.has(id)) {
         visibleStates.add(related.state);
         visibleTypes.add(related.type);
@@ -1687,7 +1939,8 @@
 
     function selectNode(id, { preserveRelationshipNavigation = false } = {}) {
       const node = graphData.nodes.find(candidate => candidate.id === id);
-      if (!node) return;
+      if (!node) return false;
+      if (editSession?.issueId !== id && !discardMetadataEdit('Discard your changes and select another bead?')) return false;
       if (!preserveRelationshipNavigation) relationshipNavigation = null;
       selectedId = id;
       document.querySelectorAll('.node').forEach(element => element.classList.toggle('selected', element.dataset.id === id));
@@ -1729,6 +1982,7 @@
       el('detail-description').hidden = !node.description;
       el('detail-description').textContent = node.description;
       applyRelationshipContext();
+      return true;
     }
 
     async function copySelectedId() {
@@ -1774,6 +2028,10 @@
 
     async function chooseRepository(path) {
       if (!path || path === currentRepository) return;
+      if (!discardMetadataEdit('Discard your changes and switch repositories?')) {
+        el('repository-select').value = currentRepository || '';
+        return;
+      }
       await persistView();
       setBusy(true);
       el('error').style.display = 'none';
@@ -1795,6 +2053,7 @@
     }
 
     async function addRepository() {
+      if (!discardMetadataEdit('Discard your changes and add another repository?')) return;
       setBusy(true);
       el('error').style.display = 'none';
       try {
@@ -1819,6 +2078,7 @@
       if (!path) return;
       const name = select.options[select.selectedIndex]?.textContent || path;
       if (!window.confirm(`Remove ${name} from Beads Map?`)) return;
+      if (!discardMetadataEdit('Discard your metadata changes before removing this repository?')) return;
       setBusy(true);
       el('error').style.display = 'none';
       try {
@@ -1875,8 +2135,10 @@
         event.stopPropagation();
         if (el('graph-search').value) clearGraphSearch();
         else if (selectedId) {
-          clearDetails();
-          scheduleViewSave();
+          if (discardMetadataEdit()) {
+            clearDetails();
+            scheduleViewSave();
+          }
         }
       }
     });
@@ -1888,8 +2150,10 @@
         el('graph-search').focus();
         el('graph-search').select();
       } else if (event.key === 'Escape' && selectedId) {
-        clearDetails();
-        scheduleViewSave();
+        if (discardMetadataEdit()) {
+          clearDetails();
+          scheduleViewSave();
+        }
       }
     });
     document.querySelectorAll('[data-state]').forEach(button => {
@@ -1897,6 +2161,10 @@
     });
     el('status-show-all').addEventListener('click', showAllFilters);
     el('detail-copy').addEventListener('click', copySelectedId);
+    el('detail-edit').addEventListener('click', beginMetadataEdit);
+    el('detail-edit-cancel').addEventListener('click', cancelMetadataEdit);
+    el('detail-edit-form').addEventListener('submit', saveMetadataEdit);
+    el('detail-conflict-reload').addEventListener('click', reloadMetadataDraft);
     el('ready-only').addEventListener('click', showReadyWork);
     el('epic-overview-open').addEventListener('click', openEpicOverview);
     el('export-graph').addEventListener('click', exportCurrentGraph);

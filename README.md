@@ -1,7 +1,8 @@
 # Beads Map
 
-A tiny, read-only dependency graph for local Beads repositories. Each graph
-stays repository-scoped; use the header selector to switch between them.
+A tiny dependency graph for local Beads repositories with explicit editing for
+five metadata fields. Each graph stays repository-scoped; use the header
+selector to switch between them.
 
 Requires Python 3.11 or newer, `uv`, and `bd >=1.1,<2` on `PATH`.
 
@@ -70,7 +71,14 @@ is marked stale. After a successful refresh, added, newly completed, and
 otherwise updated work is marked briefly by comparing only the two in-memory
 snapshots; no history is stored.
 
-It does not write to Beads. The catalog stores repository paths and per-repository
-view preferences in the operating system's user configuration directory; it
-never stores issue data. Catalog updates are locked and atomically replaced so
-two running Beads Map sessions do not lose one another's changes.
+Use **Edit** in the selected-bead details panel to change title, description,
+priority, assignee, or labels. Save uses `bd update`, checks that the repository
+snapshot has not changed since editing began, and refreshes the graph from Beads
+afterward. Conflicts and write failures keep the draft for explicit recovery.
+Status, type, workflow actions, relationships, issue creation/deletion, and sync
+remain read-only.
+
+The catalog stores repository paths and per-repository view preferences in the
+operating system's user configuration directory; it never stores issue data or
+edit drafts. Catalog updates are locked and atomically replaced so two running
+Beads Map sessions do not lose one another's changes.

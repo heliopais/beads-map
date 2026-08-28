@@ -1,6 +1,6 @@
 # Metadata Editing Plan
 
-Status: Planned
+Status: Implemented in Beads Map 0.2.0
 Tracking epic: `beads-map-bz4`
 Target release: Beads Map 0.2.0
 

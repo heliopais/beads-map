@@ -1,9 +1,9 @@
-# Beads Map first-release specification
+# Beads Map product specification
 
 ## Product
 
-Beads Map is a local, read-only web application for understanding the current
-work in one Beads repository at a time. Its main surface is the dependency DAG:
+Beads Map is a local web application for understanding the current work in one
+Beads repository at a time. Its main surface is the dependency DAG:
 blockers flow from left to right into the work they block. A user can keep a
 catalog of local repositories and switch between their separate graphs, but the
 application never joins repositories into one graph.
@@ -31,10 +31,13 @@ hardens it; it does not replace it with a new stack.
 - Remember repositories and each repository's view state locally.
 - Refresh the active repository automatically and on demand without disturbing
   the current view when its graph has not changed.
+- Explicitly edit title, description, priority, assignee, and labels for the
+  selected bead, with stale-snapshot protection and a canonical refresh.
 
 ### Out of scope
 
-- Creating, editing, claiming, closing, or syncing Beads records.
+- Creating or deleting Beads records; changing status, type, workflow state, or
+  relationships; claiming, closing, deferring, reopening, or syncing work.
 - A cross-repository graph or portfolio summary.
 - History, trends, time travel, hosted collaboration, or stakeholder reports.
 - Persisted manual node placement, semantic clustering, a daemon, a tray app, or
@@ -59,7 +62,7 @@ Aliases deduplicate, while distinct working copies stay distinct. Missing,
 unreadable, moved, or invalid entries remain visible and offer Retry, Locate, and
 catalog-only Remove. A failed repository switch leaves the current graph intact.
 A failed refresh retains the last good graph in memory and marks it stale. No
-issue data survives application restart.
+issue data survives application restart. Edit drafts are also in-memory only.
 
 The stable layout runs left to right from originating or prerequisite work to its
 children, follow-ons, and dependent outcomes.
@@ -77,7 +80,8 @@ packaged HTML/CSS/vanilla JavaScript, and native SVG. Keep direct function
 composition and at most three focused Python responsibilities:
 
 1. Application entry point, CLI lifecycle, and loopback HTTP server.
-2. Beads reading, normalization, snapshot hashing, and refresh coordination.
+2. Beads reading, normalization, snapshot hashing, refresh coordination, and
+   the allowlisted metadata-update boundary.
 3. Repository catalog and per-repository view persistence.
 
 These responsibilities may begin as three modules beside the packaged web asset.
@@ -95,10 +99,18 @@ changed and requests the new graph only when needed. Manual refresh uses the sam
 path. The browser owns transient interaction state; the server owns snapshots,
 catalog state, and persisted view metadata.
 
+Metadata editing uses an explicit details-panel mode. Save sends the selected
+repository, bead ID, edit-start snapshot hash, and the complete five-field
+allowlist. The server serializes refresh, hash comparison, one shell-free `bd
+update`, and canonical refresh with the same per-repository coordinator. A stale
+hash returns a conflict before writing; validation, conflicts, and failures keep
+the browser draft intact.
+
 Use the installed `bd` CLI as the sole Beads boundary:
 
 ```text
 bd --readonly -C <repository> export
+bd -C <repository> update <issue-id> <allowlisted metadata flags>
 ```
 
 Normalize issues, labels, comments, raw status, parent links, and dependencies
@@ -123,9 +135,11 @@ with user-only permissions where the platform supports them. Do not scan the
 filesystem for repositories or disclose catalog paths over the network.
 
 Bind only to loopback. Serve the application and its JSON interface from the same
-origin, send no permissive CORS headers, and reject state-changing catalog/view
-requests that are not from the running application session. These requests may
-change Beads Map's local preferences only; no endpoint may mutate Beads.
+origin, send no permissive CORS headers, and reject state-changing requests that
+lack the application header. Catalog/view requests change local preferences
+only. `POST /api/issues/update` is the sole Beads mutation endpoint and accepts
+only title, description, priority, assignee, and labels for the selected
+repository and a bead present in the freshly checked snapshot.
 
 ## Distribution
 
@@ -140,13 +154,15 @@ Ordinary tests must not depend on a live Beads database.
 
 - Fast Python tests cover the CLI, port selection, HTTP interface, version checks,
   subprocess timeouts, normalization, hashing, refresh serialization, stale
-  fallback, catalog locking, merging, permissions, and atomic persistence.
+  fallback, catalog locking, merging, permissions, atomic persistence, mutation
+  validation, command construction, conflicts, and write/refresh failures.
 - Fixture tests cover representative and malformed exports, missing dependency
   endpoints, unknown fields, missing or moved repositories, filters, long paths,
   and transient read failures.
 - Development-only browser smoke and performance tests exercise the real SVG
   workspace through 1,000 nodes and 3,000 edges, including pan, zoom, selection,
-  filtering, path focus, repository switching, and view restoration.
+  filtering, path focus, repository switching, view restoration, metadata Save
+  and Cancel, stale conflict recovery, failure retention, and narrow layout.
 - A small optional integration suite may run against an installed supported `bd`.
 
 ## Delivery order

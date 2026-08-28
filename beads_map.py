@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Minimal read-only Beads dependency graph POC."""
+"""Local Beads dependency graph with narrowly scoped metadata editing."""
 
 from __future__ import annotations
 
@@ -26,7 +26,7 @@ except ImportError:  # pragma: no cover - Windows is not currently supported.
     fcntl = None
 
 
-__version__ = "0.1.17"
+__version__ = "0.2.0"
 BLOCKING_DEPENDENCIES = {"blocks", "conditional-blocks", "waits-for"}
 DISPLAYED_DEPENDENCIES = BLOCKING_DEPENDENCIES | {"discovered-from", "parent-child"}
 VIEW_STATES = {"completed", "in-progress", "ready", "blocked", "deferred"}
@@ -46,6 +46,16 @@ WEB_ROOT = ROOT / "web"
 
 
 class BeadsError(RuntimeError):
+    pass
+
+
+class SnapshotConflict(BeadsError):
+    def __init__(self, snapshot_hash: str):
+        super().__init__("The bead changed after editing began.")
+        self.snapshot_hash = snapshot_hash
+
+
+class IssueNotFound(BeadsError):
     pass
 
 
@@ -357,6 +367,125 @@ def export_issues(repository: Path) -> list[dict]:
     return issues
 
 
+def validate_update_request(payload: dict) -> tuple[str, str, str, dict]:
+    expected_keys = {"repository", "issueId", "snapshotHash", "fields"}
+    if set(payload) != expected_keys:
+        raise ValueError("Update request contains missing or unsupported fields.")
+
+    repository = payload["repository"]
+    issue_id = payload["issueId"]
+    snapshot_hash = payload["snapshotHash"]
+    fields = payload["fields"]
+    if not isinstance(repository, str) or not repository.strip():
+        raise ValueError("Repository must be a non-empty path.")
+    if not isinstance(issue_id, str) or not issue_id.strip() or len(issue_id) > 200:
+        raise ValueError("Issue ID must be a non-empty string.")
+    if not isinstance(snapshot_hash, str) or not re.fullmatch(
+        r"[0-9a-f]{64}", snapshot_hash
+    ):
+        raise ValueError("Snapshot hash is invalid.")
+    if not isinstance(fields, dict):
+        raise ValueError("Fields must be a JSON object.")
+
+    expected_fields = {"title", "description", "priority", "assignee", "labels"}
+    if set(fields) != expected_fields:
+        raise ValueError("Fields contain missing or unsupported metadata.")
+
+    title = fields["title"]
+    description = fields["description"]
+    priority = fields["priority"]
+    assignee = fields["assignee"]
+    labels = fields["labels"]
+    if (
+        not isinstance(title, str)
+        or not title.strip()
+        or len(title.strip()) > 500
+        or any(character in title for character in "\r\n")
+    ):
+        raise ValueError("Title must contain between 1 and 500 characters.")
+    if not isinstance(description, str) or len(description) > 10_000:
+        raise ValueError("Description must contain at most 10,000 characters.")
+    if isinstance(priority, bool) or not isinstance(priority, int) or priority not in range(5):
+        raise ValueError("Priority must be an integer from 0 through 4.")
+    if (
+        not isinstance(assignee, str)
+        or len(assignee.strip()) > 200
+        or any(character in assignee for character in "\r\n")
+    ):
+        raise ValueError("Assignee must contain at most 200 characters.")
+    if not isinstance(labels, list) or len(labels) > 100:
+        raise ValueError("Labels must be an array containing at most 100 values.")
+
+    normalized_labels: list[str] = []
+    for label in labels:
+        if (
+            not isinstance(label, str)
+            or not label.strip()
+            or len(label.strip()) > 100
+            or any(character in label for character in "\r\n")
+        ):
+            raise ValueError("Each label must contain between 1 and 100 characters.")
+        normalized = label.strip()
+        if normalized not in normalized_labels:
+            normalized_labels.append(normalized)
+
+    return (
+        repository,
+        issue_id.strip(),
+        snapshot_hash,
+        {
+            "title": title.strip(),
+            "description": description,
+            "priority": priority,
+            "assignee": assignee.strip(),
+            "labels": sorted(normalized_labels),
+        },
+    )
+
+
+def update_issue_metadata(
+    repository: Path, issue_id: str, fields: dict, existing_node: dict
+) -> None:
+    command = [
+        "bd",
+        "-C",
+        str(repository),
+        "update",
+        issue_id,
+        "--title",
+        fields["title"],
+        "--description",
+        fields["description"],
+        "--allow-empty-description",
+        "--priority",
+        str(fields["priority"]),
+        "--assignee",
+        fields["assignee"],
+    ]
+    current_labels = set(existing_node.get("labels") or [])
+    requested_labels = set(fields["labels"])
+    for label in sorted(requested_labels - current_labels):
+        command.extend(("--add-label", label))
+    for label in sorted(current_labels - requested_labels):
+        command.extend(("--remove-label", label))
+
+    try:
+        result = subprocess.run(
+            command,
+            capture_output=True,
+            text=True,
+            timeout=20,
+            check=False,
+        )
+    except FileNotFoundError as error:
+        raise BeadsError("The `bd` command is not installed or not on PATH.") from error
+    except subprocess.TimeoutExpired as error:
+        raise BeadsError("Timed out while updating the bead.") from error
+    if result.returncode != 0:
+        message = result.stderr.strip() or result.stdout.strip()
+        raise BeadsError(message or "Beads could not update the issue.")
+
+
 def normalize_graph(repository: Path, issues: list[dict]) -> dict:
     by_id = {issue["id"]: issue for issue in issues if issue.get("id")}
     edges: list[dict] = []
@@ -467,10 +596,15 @@ def graph_hash(graph: dict) -> str:
 
 
 class SnapshotCoordinator:
-    def __init__(self, loader: Callable[[Path], dict] | None = None):
+    def __init__(
+        self,
+        loader: Callable[[Path], dict] | None = None,
+        updater: Callable[[Path, str, dict, dict], None] | None = None,
+    ):
         self._loader = loader or (
             lambda repository: normalize_graph(repository, export_issues(repository))
         )
+        self._updater = updater or update_issue_metadata
         self._locks_lock = threading.Lock()
         self._repository_locks: dict[Path, threading.Lock] = {}
         self._snapshots: dict[Path, tuple[dict, str, str]] = {}
@@ -513,6 +647,39 @@ class SnapshotCoordinator:
                 "freshness": freshness,
             }
 
+    def update_issue(
+        self, repository: Path, issue_id: str, expected_hash: str, fields: dict
+    ) -> dict:
+        with self._lock_for(repository):
+            graph = self._loader(repository)
+            digest = graph_hash(graph)
+            checked_at = datetime.now(timezone.utc).isoformat()
+            self._snapshots[repository] = (graph, digest, checked_at)
+            if digest != expected_hash:
+                raise SnapshotConflict(digest)
+
+            existing_node = next(
+                (node for node in graph.get("nodes", []) if node.get("id") == issue_id),
+                None,
+            )
+            if existing_node is None:
+                raise IssueNotFound("The selected bead no longer exists.")
+
+            self._updater(repository, issue_id, fields, existing_node)
+            updated_graph = self._loader(repository)
+            updated_digest = graph_hash(updated_graph)
+            updated_at = datetime.now(timezone.utc).isoformat()
+            self._snapshots[repository] = (updated_graph, updated_digest, updated_at)
+            return {
+                **updated_graph,
+                "snapshotHash": updated_digest,
+                "freshness": {
+                    "stale": False,
+                    "error": None,
+                    "updatedAt": updated_at,
+                },
+            }
+
 
 class AppHandler(BaseHTTPRequestHandler):
     catalog: RepositoryCatalog
@@ -538,7 +705,12 @@ class AppHandler(BaseHTTPRequestHandler):
     def do_POST(self) -> None:  # noqa: N802 - BaseHTTPRequestHandler API
         path = urlsplit(self.path).path
         if path.startswith("/api/") and self.headers.get("X-Beads-Map") != "1":
-            self._send_json(403, {"error": "Local preference update was not authorized."})
+            message = (
+                "Metadata update was not authorized."
+                if path == "/api/issues/update"
+                else "Local preference update was not authorized."
+            )
+            self._send_json(403, {"error": message})
             return
         if path == "/api/repositories/pick":
             try:
@@ -551,6 +723,9 @@ class AppHandler(BaseHTTPRequestHandler):
                 self._send_json(200, {"catalog": self.catalog.payload(), "graph": graph})
             except (BeadsError, OSError) as error:
                 self._send_json(400, {"error": str(error)})
+            return
+        if path == "/api/issues/update":
+            self._update_issue()
             return
         try:
             payload = self._read_json()
@@ -579,6 +754,38 @@ class AppHandler(BaseHTTPRequestHandler):
             self._send_json(400, {"error": str(error)})
             return
         self.send_error(404)
+
+    def _update_issue(self) -> None:
+        try:
+            repository_value, issue_id, expected_hash, fields = validate_update_request(
+                self._read_json()
+            )
+        except ValueError as error:
+            self._send_json(400, {"error": str(error)})
+            return
+
+        repository = self.catalog.selected()
+        if repository is None:
+            self._send_json(404, {"error": "No repository is selected."})
+            return
+        if repository_value != str(repository):
+            self._send_json(404, {"error": "Repository is not the selected catalog entry."})
+            return
+
+        try:
+            graph = self.snapshots.update_issue(
+                repository, issue_id, expected_hash, fields
+            )
+            self._send_json(200, graph)
+        except SnapshotConflict as error:
+            self._send_json(
+                409,
+                {"error": str(error), "snapshotHash": error.snapshot_hash},
+            )
+        except IssueNotFound as error:
+            self._send_json(404, {"error": str(error)})
+        except (BeadsError, OSError) as error:
+            self._send_json(500, {"error": str(error)})
 
     def do_DELETE(self) -> None:  # noqa: N802 - BaseHTTPRequestHandler API
         if urlsplit(self.path).path != "/api/repositories":

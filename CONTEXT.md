@@ -1,12 +1,16 @@
 # Beads Map
 
-Beads Map is the product context for visually understanding work recorded in Beads without changing that work.
+Beads Map is the product context for visually understanding work recorded in Beads and explicitly maintaining a narrow set of descriptive metadata.
 
 ## Language
 
 **Beads Map**:
-A read-only visual companion for understanding work and dependency relationships recorded in Beads.
-_Avoid_: Beads editor, issue manager
+A visual companion for understanding work and dependency relationships recorded in Beads, with narrowly scoped metadata editing.
+_Avoid_: Issue manager, workflow editor
+
+**Metadata edit**:
+An explicit change to a work item's title, description, priority, assignee, or labels that leaves its workflow state and relationships untouched.
+_Avoid_: Workflow action, issue management
 
 **Beads Map command**:
 The user-facing `beads-map` CLI entry point that opens the local Beads Map application for remembered or supplied repositories. The Python script invocation remains a development and fallback entry point rather than the product command.
