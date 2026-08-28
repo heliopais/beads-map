@@ -180,8 +180,9 @@
     .zoom-controls button:hover, .search-controls button:hover { border-color: var(--focus); }
     .zoom-controls button:disabled, .search-controls button:disabled { cursor: default; opacity: .45; }
     .zoom-level { min-width: 40px; text-align: center; font-variant-numeric: tabular-nums; }
+    .canvas-frame { position: relative; height: calc(100% - 28px); }
     .scroller {
-      height: calc(100% - 28px);
+      height: 100%;
       overflow: auto;
       cursor: grab;
       user-select: none;
@@ -237,6 +238,32 @@
     .submap-trigger:hover rect,
     .submap-trigger:focus rect { fill: var(--surface); stroke: var(--focus); stroke-width: 2; }
     .graph-empty { fill: var(--muted); font-size: 15px; }
+    .minimap {
+      position: absolute;
+      right: 12px;
+      bottom: 12px;
+      width: 180px;
+      height: 112px;
+      overflow: hidden;
+      color: var(--line);
+      background: color-mix(in srgb, var(--surface) 92%, transparent);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      box-shadow: 0 4px 14px rgba(0,0,0,.16);
+      cursor: crosshair;
+      touch-action: none;
+    }
+    .minimap[hidden] { display: none; }
+    .minimap svg { width: 100%; height: 100%; }
+    .minimap-node { fill: var(--line); opacity: .72; }
+    .minimap-node.epic { fill: var(--epic); opacity: .9; }
+    .minimap-viewport {
+      fill: color-mix(in srgb, var(--focus) 12%, transparent);
+      stroke: var(--focus);
+      stroke-width: 8;
+      vector-effect: non-scaling-stroke;
+      pointer-events: none;
+    }
 
     .epic-dialog {
       width: min(620px, calc(100vw - 32px));
@@ -324,6 +351,7 @@
       .graph-tools { width: 100%; flex-wrap: wrap; }
       .search-controls { width: 100%; margin-left: 0; }
       .search-input { flex: 1; width: auto; }
+      .minimap { display: none; }
     }
   </style>
 </head>
@@ -386,7 +414,12 @@
           </div>
         </div>
       </div>
-      <div class="scroller" id="graph-scroller"><svg id="graph" role="img" aria-label="Beads dependency graph"></svg></div>
+      <div class="canvas-frame">
+        <div class="scroller" id="graph-scroller"><svg id="graph" role="img" aria-label="Beads dependency graph"></svg></div>
+        <div class="minimap" id="minimap" role="navigation" aria-label="Graph minimap" hidden>
+          <svg id="minimap-svg" preserveAspectRatio="none" aria-hidden="true"></svg>
+        </div>
+      </div>
     </section>
     <aside aria-live="polite">
       <div id="details-empty" class="empty">Select a work item to see its details.</div>
@@ -449,6 +482,7 @@
     let relationshipNavigation = null;
     let epicScopeId = null;
     let fullMapView = null;
+    let minimapGesture = null;
 
     const el = id => document.getElementById(id);
     const svgElement = (name, attributes = {}) => {
@@ -729,6 +763,74 @@
         top: (position.y + NODE_H / 2) * zoom - scroller.clientHeight / 2,
         behavior: 'smooth',
       });
+    }
+
+    function updateMinimapViewport() {
+      const minimap = el('minimap');
+      const viewport = el('minimap-viewport');
+      const scroller = el('graph-scroller');
+      if (!viewport || !graphData) return;
+      const visibleWidth = scroller.clientWidth / zoom;
+      const visibleHeight = scroller.clientHeight / zoom;
+      const graphFits = graphSize.width <= visibleWidth + 1 && graphSize.height <= visibleHeight + 1;
+      minimap.hidden = graphFits;
+      if (graphFits) return;
+      viewport.setAttribute('x', Math.max(0, scroller.scrollLeft / zoom));
+      viewport.setAttribute('y', Math.max(0, scroller.scrollTop / zoom));
+      viewport.setAttribute('width', Math.min(graphSize.width, visibleWidth));
+      viewport.setAttribute('height', Math.min(graphSize.height, visibleHeight));
+    }
+
+    function renderMinimap(visibleNodes, positions) {
+      const svg = el('minimap-svg');
+      svg.replaceChildren();
+      svg.setAttribute('viewBox', `0 0 ${graphSize.width} ${graphSize.height}`);
+      visibleNodes.forEach(node => {
+        const position = positions.get(node.id);
+        if (!position) return;
+        svg.append(svgElement('rect', {
+          class: `minimap-node ${node.type === 'epic' ? 'epic' : ''}`,
+          x: position.x,
+          y: position.y,
+          width: NODE_W,
+          height: NODE_H,
+          rx: 8,
+        }));
+      });
+      svg.append(svgElement('rect', { id: 'minimap-viewport', class: 'minimap-viewport', rx: 8 }));
+      updateMinimapViewport();
+    }
+
+    function moveFromMinimap(event) {
+      const minimap = el('minimap');
+      const bounds = minimap.getBoundingClientRect();
+      const graphX = (event.clientX - bounds.left) / bounds.width * graphSize.width;
+      const graphY = (event.clientY - bounds.top) / bounds.height * graphSize.height;
+      const scroller = el('graph-scroller');
+      scroller.scrollLeft = graphX * zoom - scroller.clientWidth / 2;
+      scroller.scrollTop = graphY * zoom - scroller.clientHeight / 2;
+      updateMinimapViewport();
+    }
+
+    function beginMinimapGesture(event) {
+      if (event.button !== 0) return;
+      minimapGesture = event.pointerId;
+      el('minimap').setPointerCapture(event.pointerId);
+      moveFromMinimap(event);
+      event.preventDefault();
+    }
+
+    function moveMinimapGesture(event) {
+      if (minimapGesture !== event.pointerId) return;
+      moveFromMinimap(event);
+      event.preventDefault();
+    }
+
+    function endMinimapGesture(event) {
+      if (minimapGesture !== event.pointerId) return;
+      minimapGesture = null;
+      if (el('minimap').hasPointerCapture(event.pointerId)) el('minimap').releasePointerCapture(event.pointerId);
+      scheduleViewSave();
     }
 
     function navigateSearch(direction) {
@@ -1048,6 +1150,7 @@
         scroller.scrollLeft = contentPoint.x * zoom - anchorPoint.x;
         scroller.scrollTop = contentPoint.y * zoom - anchorPoint.y;
       }
+      updateMinimapViewport();
     }
 
     function fitGraph() {
@@ -1177,6 +1280,7 @@
       nodePositions = positions;
       svg.setAttribute('viewBox', `0 0 ${width} ${height}`);
       setZoom(zoom, false);
+      renderMinimap(visibleNodes, positions);
       if (savedScroll) el('graph-scroller').scrollTo(savedScroll);
 
       const defs = svgElement('defs');
@@ -1551,7 +1655,14 @@
     el('graph-scroller').addEventListener('pointerup', endCanvasGesture);
     el('graph-scroller').addEventListener('pointercancel', endCanvasGesture);
     el('graph-scroller').addEventListener('dragstart', event => event.preventDefault());
-    el('graph-scroller').addEventListener('scroll', scheduleViewSave);
+    el('graph-scroller').addEventListener('scroll', () => {
+      updateMinimapViewport();
+      scheduleViewSave();
+    });
+    el('minimap').addEventListener('pointerdown', beginMinimapGesture);
+    el('minimap').addEventListener('pointermove', moveMinimapGesture);
+    el('minimap').addEventListener('pointerup', endMinimapGesture);
+    el('minimap').addEventListener('pointercancel', endMinimapGesture);
     initialize();
     window.setInterval(() => {
       if (!document.hidden && currentRepository && !el('repository-select').disabled) {
