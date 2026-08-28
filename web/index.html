@@ -93,6 +93,7 @@
     .filter-label { font-size: 10px; letter-spacing: .06em; text-transform: uppercase; }
     .freshness { color: var(--ready); }
     .freshness.stale { color: #c65353; font-weight: 650; }
+    .change-summary { color: var(--focus); font-weight: 650; }
     .legend button {
       display: inline-flex;
       align-items: center;
@@ -226,12 +227,19 @@
     .node:hover rect:first-child,
     .node:focus rect:first-child { stroke: var(--focus); stroke-width: 2.5; }
     .node.search-match rect:first-child { stroke: var(--search); stroke-width: 2.3; }
+    .node.change-added rect:first-child { stroke: var(--ready); stroke-width: 3; }
+    .node.change-completed rect:first-child { stroke: var(--in-progress); stroke-width: 3; }
+    .node.change-updated rect:first-child { stroke: var(--search); stroke-width: 3; }
     .node.context-upstream rect:first-child { stroke: var(--blocked); stroke-width: 2.6; }
     .node.context-downstream rect:first-child { stroke: var(--ready); stroke-width: 2.6; }
     .node.selected rect:first-child,
     .node.search-current rect:first-child { stroke: var(--focus); stroke-width: 3.2; }
     .node-title { fill: var(--text); font-size: 13px; font-weight: 600; }
     .node-meta { fill: var(--muted); font-size: 10px; letter-spacing: .06em; text-transform: uppercase; }
+    .change-label { font-size: 9px; font-weight: 750; letter-spacing: .05em; text-transform: uppercase; }
+    .change-label.added { fill: var(--ready); }
+    .change-label.completed { fill: var(--in-progress); }
+    .change-label.updated { fill: var(--search); }
     .submap-trigger { cursor: pointer; outline: none; }
     .submap-trigger rect { fill: var(--surface-2); stroke: var(--epic); stroke-width: 1.2; }
     .submap-trigger text { fill: var(--epic); font-size: 15px; font-weight: 700; }
@@ -375,6 +383,7 @@
   <section class="summary" aria-label="Graph summary">
     <strong id="counts">Loading graph…</strong>
     <span class="freshness" id="freshness" aria-live="polite"></span>
+    <span class="change-summary" id="change-summary" role="status" hidden></span>
     <div class="legend" aria-label="Graph filters">
       <button class="completed" type="button" data-state="completed" aria-pressed="true"><i class="dot"></i>Completed</button>
       <button class="in-progress" type="button" data-state="in-progress" aria-pressed="true"><i class="dot"></i>In progress</button>
@@ -483,6 +492,8 @@
     let epicScopeId = null;
     let fullMapView = null;
     let minimapGesture = null;
+    let changeHighlights = new Map();
+    let changeCueTimer = null;
 
     const el = id => document.getElementById(id);
     const svgElement = (name, attributes = {}) => {
@@ -544,10 +555,66 @@
         : '');
     }
 
+    function incidentEdgeSignature(data, id) {
+      return data.edges
+        .filter(edge => edge.source === id || edge.target === id)
+        .map(edge => `${edge.source}\u0000${edge.target}\u0000${edge.type}`)
+        .sort()
+        .join('\n');
+    }
+
+    function detectGraphChanges(previous, next) {
+      const changes = new Map();
+      if (!previous || previous.path !== next.path) return changes;
+      const previousNodes = new Map(previous.nodes.map(node => [node.id, node]));
+      next.nodes.forEach(node => {
+        const before = previousNodes.get(node.id);
+        if (!before) {
+          changes.set(node.id, 'added');
+        } else if (before.state !== 'completed' && node.state === 'completed') {
+          changes.set(node.id, 'completed');
+        } else if (
+          JSON.stringify(before) !== JSON.stringify(node)
+          || incidentEdgeSignature(previous, node.id) !== incidentEdgeSignature(next, node.id)
+        ) {
+          changes.set(node.id, 'updated');
+        }
+      });
+      return changes;
+    }
+
+    function clearChangeCues() {
+      changeHighlights.clear();
+      el('change-summary').hidden = true;
+      document.querySelectorAll('.node').forEach(node => {
+        node.classList.remove('change-added', 'change-completed', 'change-updated');
+        node.querySelector('.change-label')?.remove();
+      });
+    }
+
+    function showChangeSummary() {
+      window.clearTimeout(changeCueTimer);
+      const counts = { added: 0, completed: 0, updated: 0 };
+      changeHighlights.forEach(kind => { counts[kind] += 1; });
+      const parts = [
+        counts.added ? `${counts.added} added` : '',
+        counts.completed ? `${counts.completed} completed` : '',
+        counts.updated ? `${counts.updated} updated` : '',
+      ].filter(Boolean);
+      const summary = el('change-summary');
+      summary.textContent = parts.length ? `Since last refresh: ${parts.join(' · ')}` : '';
+      summary.hidden = !parts.length;
+      if (parts.length) changeCueTimer = window.setTimeout(clearChangeCues, 8000);
+    }
+
     function applyGraph(payload) {
       snapshotHash = payload.snapshotHash || snapshotHash;
       updateFreshness(payload.freshness);
-      if (!payload.unchanged) renderGraph(payload);
+      if (!payload.unchanged) {
+        changeHighlights = detectGraphChanges(graphData, payload);
+        renderGraph(payload);
+        showChangeSummary();
+      }
     }
 
     function currentView() {
@@ -1357,15 +1424,19 @@
 
       visibleNodes.forEach(node => {
         const position = positions.get(node.id);
+        const changeKind = changeHighlights.get(node.id);
         const progressText = node.epicProgress
           ? ` · ${node.epicProgress.completed}/${node.epicProgress.total}`
           : '';
         const progressLabel = node.epicProgress
           ? `, ${node.epicProgress.completed} of ${node.epicProgress.total} direct children closed`
           : '';
-        const baseLabel = `${node.title}, ${node.state}${progressLabel}`;
+        const changeLabel = changeKind
+          ? `, ${changeKind === 'completed' ? 'newly completed' : `${changeKind} since last refresh`}`
+          : '';
+        const baseLabel = `${node.title}, ${node.state}${progressLabel}${changeLabel}`;
         const group = svgElement('g', {
-          class: `node ${node.state} ${node.type === 'epic' ? 'epic' : ''}`,
+          class: `node ${node.state} ${node.type === 'epic' ? 'epic' : ''} ${changeKind ? `change-${changeKind}` : ''}`,
           transform: `translate(${position.x} ${position.y})`,
           tabindex: '0',
           role: 'button',
@@ -1388,6 +1459,16 @@
           title.append(tspan);
         });
         group.append(title);
+        if (changeKind) {
+          const cue = svgElement('text', {
+            class: `change-label ${changeKind}`,
+            x: NODE_W - 12,
+            y: NODE_H - 10,
+            'text-anchor': 'end',
+          });
+          cue.textContent = changeKind === 'completed' ? 'done' : changeKind;
+          group.append(cue);
+        }
         const activate = () => {
           if (selectedId === node.id) clearDetails();
           else selectNode(node.id);

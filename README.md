@@ -63,7 +63,9 @@ minimap appears when the graph extends beyond the viewport; click or drag it to
 navigate the larger canvas. The
 graph checks for Beads changes every five seconds and skips redrawing when the
 snapshot is unchanged. If a read fails, the last good graph stays visible and
-is marked stale.
+is marked stale. After a successful refresh, added, newly completed, and
+otherwise updated work is marked briefly by comparing only the two in-memory
+snapshots; no history is stored.
 
 It does not write to Beads. The catalog stores repository paths and per-repository
 view preferences in the operating system's user configuration directory; it
