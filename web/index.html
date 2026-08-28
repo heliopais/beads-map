@@ -111,6 +111,7 @@
     .legend button[aria-pressed="false"] { opacity: .42; }
     .legend button:hover { border-color: currentColor; }
     .legend .type { color: var(--text); }
+    .legend .ready-shortcut { color: var(--ready); font-weight: 650; }
     .legend .show-all { color: var(--muted); }
     .legend .show-all:disabled { cursor: default; opacity: .42; }
     .dot { width: 8px; height: 8px; border-radius: 50%; background: currentColor; }
@@ -352,6 +353,7 @@
       <button class="ready" type="button" data-state="ready" aria-pressed="true"><i class="dot"></i>Ready</button>
       <button class="blocked" type="button" data-state="blocked" aria-pressed="true"><i class="dot"></i>Blocked</button>
       <button class="deferred" type="button" data-state="deferred" aria-pressed="true"><i class="dot"></i>Deferred</button>
+      <button class="ready-shortcut" id="ready-only" type="button" aria-pressed="false">What’s ready?</button>
       <span class="filter-divider" aria-hidden="true"></span>
       <span class="filter-label">Type</span>
       <span class="type-filters" id="type-filters"></span>
@@ -854,6 +856,10 @@
       });
       const allStatesVisible = visibleStates.size === ALL_STATES.length;
       const allTypesVisible = availableTypes.every(type => visibleTypes.has(type));
+      el('ready-only').setAttribute(
+        'aria-pressed',
+        String(visibleStates.size === 1 && visibleStates.has('ready') && allTypesVisible),
+      );
       el('status-show-all').disabled = allStatesVisible && allTypesVisible;
     }
 
@@ -895,6 +901,15 @@
 
     function showAllFilters() {
       ALL_STATES.forEach(state => visibleStates.add(state));
+      availableTypes.forEach(type => visibleTypes.add(type));
+      updateStatusControls();
+      if (graphData) renderGraph(graphData);
+      scheduleViewSave();
+    }
+
+    function showReadyWork() {
+      visibleStates.clear();
+      visibleStates.add('ready');
       availableTypes.forEach(type => visibleTypes.add(type));
       updateStatusControls();
       if (graphData) renderGraph(graphData);
@@ -1516,6 +1531,7 @@
       button.addEventListener('click', () => toggleStatus(button.dataset.state));
     });
     el('status-show-all').addEventListener('click', showAllFilters);
+    el('ready-only').addEventListener('click', showReadyWork);
     el('epic-overview-open').addEventListener('click', openEpicOverview);
     el('epic-overview').addEventListener('click', event => {
       if (event.target === el('epic-overview')) el('epic-overview').close();

@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "beads-map"
-version = "0.1.12"
+version = "0.1.13"
 description = "A local, read-only dependency graph for Beads repositories"
 readme = "README.md"
 requires-python = ">=3.11"
