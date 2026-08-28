@@ -141,6 +141,17 @@
     .graph-scope strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .scope-back { flex: 0 0 auto; padding: 4px 8px; }
     .graph-tools, .zoom-controls, .search-controls { display: flex; align-items: center; gap: 6px; }
+    .tool-button {
+      min-width: 30px;
+      height: 28px;
+      padding: 0 9px;
+      color: var(--text);
+      background: var(--surface-2);
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      cursor: pointer;
+    }
+    .tool-button:hover { border-color: var(--focus); }
     .search-controls { margin-left: auto; }
     .search-input {
       width: min(220px, 24vw);
@@ -225,6 +236,52 @@
     .submap-trigger:hover rect,
     .submap-trigger:focus rect { fill: var(--surface); stroke: var(--focus); stroke-width: 2; }
     .graph-empty { fill: var(--muted); font-size: 15px; }
+
+    .epic-dialog {
+      width: min(620px, calc(100vw - 32px));
+      max-height: min(680px, calc(100vh - 48px));
+      padding: 0;
+      color: var(--text);
+      background: var(--surface);
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      box-shadow: 0 18px 60px rgba(0,0,0,.28);
+    }
+    .epic-dialog::backdrop { background: rgba(20, 25, 32, .42); }
+    .epic-overview-head {
+      position: sticky;
+      top: 0;
+      z-index: 1;
+      display: flex;
+      align-items: flex-start;
+      gap: 12px;
+      padding: 16px;
+      background: var(--surface);
+      border-bottom: 1px solid var(--line);
+    }
+    .epic-overview-head h2 { margin: 0 0 2px; font-size: 18px; }
+    .epic-overview-head p { margin: 0; color: var(--muted); font-size: 12px; }
+    .epic-overview-head form { margin-left: auto; }
+    .epic-list { list-style: none; display: grid; gap: 8px; margin: 0; padding: 12px; }
+    .epic-list li { display: flex; align-items: stretch; gap: 6px; }
+    .epic-overview-select {
+      min-width: 0;
+      flex: 1;
+      display: grid;
+      gap: 3px;
+      padding: 10px 12px;
+      text-align: left;
+      color: var(--text);
+      background: var(--surface-2);
+      border: 1px solid transparent;
+      border-radius: 8px;
+      cursor: pointer;
+    }
+    .epic-overview-select:hover, .epic-overview-select:focus { border-color: var(--focus); outline: none; }
+    .epic-overview-title { overflow: hidden; text-overflow: ellipsis; font-weight: 650; }
+    .epic-overview-meta { color: var(--muted); font-size: 11px; }
+    .epic-overview-open { flex: 0 0 auto; }
+    .epic-list-empty { padding: 24px; color: var(--muted); text-align: center; }
 
     aside {
       padding: 18px;
@@ -311,6 +368,7 @@
           <strong id="graph-heading" aria-live="polite">Dependency graph</strong>
         </div>
         <div class="graph-tools">
+          <button class="tool-button" id="epic-overview-open" type="button">Epics</button>
           <span>Left → right · Double-click an epic or use ⤢ to open its sub-map</span>
           <div class="search-controls" role="search" aria-label="Find work items">
             <input class="search-input" id="graph-search" type="search" placeholder="Search title or ID" autocomplete="off" aria-label="Search work items by title or ID">
@@ -350,6 +408,17 @@
       <div class="readonly">Read-only POC · Changes made with Beads appear automatically.</div>
     </aside>
   </main>
+
+  <dialog class="epic-dialog" id="epic-overview" aria-labelledby="epic-overview-title">
+    <div class="epic-overview-head">
+      <div>
+        <h2 id="epic-overview-title">Epics</h2>
+        <p id="epic-overview-count"></p>
+      </div>
+      <form method="dialog"><button class="tool-button" type="submit" aria-label="Close epic overview">Close</button></form>
+    </div>
+    <ol class="epic-list" id="epic-list"></ol>
+  </dialog>
 
   <script>
     const SVG = 'http://www.w3.org/2000/svg';
@@ -551,6 +620,68 @@
       }
       renderGraph(graphData);
       if (view) el('graph-scroller').scrollTo({ left: view.scrollLeft, top: view.scrollTop });
+    }
+
+    function revealEpicFromOverview(epic) {
+      if (epicScopeId) leaveEpicScope();
+      visibleStates.add(epic.state);
+      visibleTypes.add(epic.type);
+      renderGraph(graphData);
+      selectNode(epic.id);
+      focusGraphNode(epic.id);
+      scheduleViewSave();
+    }
+
+    function renderEpicOverview() {
+      const list = el('epic-list');
+      list.replaceChildren();
+      const epics = (graphData?.nodes || [])
+        .filter(node => node.type === 'epic')
+        .sort((left, right) => left.title.localeCompare(right.title));
+      el('epic-overview-count').textContent = `${epics.length} ${epics.length === 1 ? 'epic' : 'epics'} in this repository`;
+      if (!epics.length) {
+        const empty = document.createElement('li');
+        empty.className = 'epic-list-empty';
+        empty.textContent = 'This repository has no epics.';
+        list.append(empty);
+        return;
+      }
+      epics.forEach(epic => {
+        const item = document.createElement('li');
+        const select = document.createElement('button');
+        select.className = 'epic-overview-select';
+        select.type = 'button';
+        const title = document.createElement('span');
+        title.className = 'epic-overview-title';
+        title.textContent = epic.title;
+        const meta = document.createElement('span');
+        meta.className = 'epic-overview-meta';
+        const progress = epic.epicProgress
+          ? ` · ${epic.epicProgress.completed}/${epic.epicProgress.total} direct children closed`
+          : '';
+        meta.textContent = `${epic.state.replace('-', ' ')} · ${epic.id}${progress}`;
+        select.append(title, meta);
+        select.addEventListener('click', () => {
+          el('epic-overview').close();
+          revealEpicFromOverview(epic);
+        });
+        const open = document.createElement('button');
+        open.className = 'tool-button epic-overview-open';
+        open.type = 'button';
+        open.textContent = 'Open sub-map';
+        open.setAttribute('aria-label', `Open sub-map for ${epic.title}`);
+        open.addEventListener('click', () => {
+          el('epic-overview').close();
+          enterEpicScope(epic.id);
+        });
+        item.append(select, open);
+        list.append(item);
+      });
+    }
+
+    function openEpicOverview() {
+      renderEpicOverview();
+      el('epic-overview').showModal();
     }
 
     function renderSearchState() {
@@ -1385,6 +1516,10 @@
       button.addEventListener('click', () => toggleStatus(button.dataset.state));
     });
     el('status-show-all').addEventListener('click', showAllFilters);
+    el('epic-overview-open').addEventListener('click', openEpicOverview);
+    el('epic-overview').addEventListener('click', event => {
+      if (event.target === el('epic-overview')) el('epic-overview').close();
+    });
     el('scope-back').addEventListener('click', leaveEpicScope);
     el('zoom-out').addEventListener('click', () => {
       setZoom(zoom - 0.15);

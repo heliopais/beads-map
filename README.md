@@ -54,7 +54,9 @@ epic's own state. Double-click an epic to open a focused sub-map containing the
 epic and all of its nested child work, or use the `⤢` control shown on epic
 cards. A sub-map starts with every status and type visible; use Back to full map
 to restore the repository overview and its previous filters. Filter visibility
-is remembered per repository. Drag empty
+is remembered per repository. Use Epics for a compact repository-wide list with
+direct-child progress; select an epic to reveal and center it, or open its
+sub-map directly. Drag empty
 canvas space to pan, or `Cmd`-drag vertically to zoom around the pointer. The
 graph checks for Beads changes every five seconds and skips redrawing when the
 snapshot is unchanged. If a read fails, the last good graph stays visible and
