@@ -160,6 +160,28 @@ class GraphNormalizationTests(unittest.TestCase):
 
         self.assertEqual(beads_map.graph_hash(first), beads_map.graph_hash(second))
 
+    def test_normalize_graph_preserves_available_detail_metadata(self) -> None:
+        graph = beads_map.normalize_graph(
+            ROOT,
+            [{
+                "id": "detail",
+                "title": "Detail",
+                "status": "in_progress",
+                "priority": 1,
+                "created_at": "2026-08-01T10:00:00Z",
+                "updated_at": "2026-08-02T11:00:00Z",
+                "started_at": "2026-08-02T10:30:00Z",
+                "closed_at": None,
+            }],
+        )
+
+        node = graph["nodes"][0]
+        self.assertEqual(node["priority"], 1)
+        self.assertEqual(node["createdAt"], "2026-08-01T10:00:00Z")
+        self.assertEqual(node["updatedAt"], "2026-08-02T11:00:00Z")
+        self.assertEqual(node["startedAt"], "2026-08-02T10:30:00Z")
+        self.assertEqual(node["closedAt"], "")
+
 
 class ExportTests(unittest.TestCase):
     def test_timeout_has_readable_error(self) -> None:

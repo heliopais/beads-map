@@ -42,7 +42,9 @@ upstream and downstream relationships, and fades unrelated work without moving
 the graph. With a graph node focused, use Left/Right to enter its direct upstream
 or downstream relationships and Up/Down to cycle multiple choices; the opposite
 horizontal arrow returns to the starting node. Select it again or press Escape
-to clear. Search finds work by title or ID without filtering or relaying out the
+to clear. The details panel groups available metadata and dates, exposes
+clickable prerequisite, dependent, hierarchy, and follow-on relationships, and
+can copy the selected bead ID. Search finds work by title or ID without filtering or relaying out the
 graph; Enter and Shift-Enter cycle through matches. The status chips show or
 hide Completed, In progress, Ready, Blocked, and Deferred work; the adjacent
 type chips combine with them to narrow the graph further, and Show all resets

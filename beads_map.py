@@ -26,7 +26,7 @@ except ImportError:  # pragma: no cover - Windows is not currently supported.
     fcntl = None
 
 
-__version__ = "0.1.15"
+__version__ = "0.1.16"
 BLOCKING_DEPENDENCIES = {"blocks", "conditional-blocks", "waits-for"}
 DISPLAYED_DEPENDENCIES = BLOCKING_DEPENDENCIES | {"discovered-from", "parent-child"}
 VIEW_STATES = {"completed", "in-progress", "ready", "blocked", "deferred"}
@@ -422,6 +422,11 @@ def normalize_graph(repository: Path, issues: list[dict]) -> dict:
             "state": state,
             "labels": sorted(issue.get("labels") or []),
             "assignee": issue.get("assignee") or "",
+            "priority": issue.get("priority"),
+            "createdAt": issue.get("created_at") or "",
+            "updatedAt": issue.get("updated_at") or "",
+            "startedAt": issue.get("started_at") or "",
+            "closedAt": issue.get("closed_at") or "",
             "blockers": sorted(blockers[issue_id]),
             "activeBlockers": sorted(active_blockers),
             "dependents": sorted(dependents[issue_id]),

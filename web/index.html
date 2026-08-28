@@ -326,7 +326,11 @@
       border-left: 1px solid var(--line);
     }
     .eyebrow { color: var(--muted); font-size: 11px; letter-spacing: .08em; text-transform: uppercase; }
+    .detail-eyebrow-row { display: flex; align-items: center; gap: 8px; }
+    .detail-eyebrow-row .eyebrow { min-width: 0; overflow-wrap: anywhere; }
+    .detail-copy { margin-left: auto; flex: 0 0 auto; padding: 3px 7px; font-size: 10px; }
     aside h2 { margin: 8px 0 10px; font-size: 20px; line-height: 1.25; }
+    aside h3 { margin: 18px 0 8px; color: var(--muted); font-size: 11px; letter-spacing: .06em; text-transform: uppercase; }
     .state {
       display: inline-block;
       margin-bottom: 18px;
@@ -341,6 +345,22 @@
     dt { color: var(--muted); font-size: 11px; }
     dd { margin: 2px 0 0; overflow-wrap: anywhere; }
     .description { margin-top: 16px; white-space: pre-wrap; color: var(--muted); font-size: 12px; }
+    .related-list { display: grid; gap: 5px; }
+    .related-item {
+      display: grid;
+      gap: 1px;
+      width: 100%;
+      padding: 6px 7px;
+      color: var(--text);
+      text-align: left;
+      background: var(--surface-2);
+      border: 1px solid transparent;
+      border-radius: 6px;
+      cursor: pointer;
+    }
+    .related-item:hover, .related-item:focus { border-color: var(--focus); outline: none; }
+    .related-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; }
+    .related-kind { color: var(--muted); font-size: 9px; letter-spacing: .04em; text-transform: uppercase; }
     .selection-context { margin: -8px 0 16px; color: var(--muted); font-size: 11px; }
     .selection-context .upstream { color: var(--blocked); }
     .selection-context .downstream { color: var(--ready); }
@@ -433,21 +453,38 @@
     <aside aria-live="polite">
       <div id="details-empty" class="empty">Select a work item to see its details.</div>
       <div id="details" hidden>
-        <div class="eyebrow"><span id="detail-type"></span> · <span id="detail-id"></span></div>
+        <div class="detail-eyebrow-row">
+          <div class="eyebrow"><span id="detail-type"></span> · <span id="detail-id"></span></div>
+          <button class="tool-button detail-copy" id="detail-copy" type="button" aria-label="Copy bead ID">Copy ID</button>
+        </div>
         <h2 id="detail-title"></h2>
         <div class="state" id="detail-state"></div>
         <div class="selection-context" id="selection-context" hidden>
           ← <span class="upstream">Upstream</span> · <span class="downstream">Downstream</span> → · ↑/↓ cycle · Escape to clear
         </div>
+        <h3>Metadata</h3>
         <dl>
           <div><dt>Raw status</dt><dd id="detail-raw"></dd></div>
           <div id="detail-progress-row" hidden><dt>Direct child progress</dt><dd id="detail-progress"></dd></div>
-          <div><dt>Blocked by</dt><dd id="detail-blockers"></dd></div>
-          <div><dt>Blocks</dt><dd id="detail-dependents"></dd></div>
-          <div><dt>Labels</dt><dd id="detail-labels"></dd></div>
-          <div><dt>Assignee</dt><dd id="detail-assignee"></dd></div>
+          <div id="detail-priority-row" hidden><dt>Priority</dt><dd id="detail-priority"></dd></div>
+          <div id="detail-labels-row" hidden><dt>Labels</dt><dd id="detail-labels"></dd></div>
+          <div id="detail-assignee-row" hidden><dt>Assignee</dt><dd id="detail-assignee"></dd></div>
+          <div id="detail-created-row" hidden><dt>Created</dt><dd id="detail-created"></dd></div>
+          <div id="detail-updated-row" hidden><dt>Updated</dt><dd id="detail-updated"></dd></div>
+          <div id="detail-started-row" hidden><dt>Started</dt><dd id="detail-started"></dd></div>
+          <div id="detail-closed-row" hidden><dt>Closed</dt><dd id="detail-closed"></dd></div>
         </dl>
-        <div class="description" id="detail-description"></div>
+        <h3 id="detail-relationships-heading" hidden>Relationships</h3>
+        <dl id="detail-relationships" hidden>
+          <div id="detail-prerequisites-row" hidden><dt>Prerequisites</dt><dd class="related-list" id="detail-prerequisites"></dd></div>
+          <div id="detail-dependents-row" hidden><dt>Dependents</dt><dd class="related-list" id="detail-dependents"></dd></div>
+          <div id="detail-parent-row" hidden><dt>Parent</dt><dd class="related-list" id="detail-parent"></dd></div>
+          <div id="detail-children-row" hidden><dt>Children</dt><dd class="related-list" id="detail-children"></dd></div>
+          <div id="detail-discovered-row" hidden><dt>Discovered from</dt><dd class="related-list" id="detail-discovered"></dd></div>
+          <div id="detail-followons-row" hidden><dt>Follow-on work</dt><dd class="related-list" id="detail-followons"></dd></div>
+        </dl>
+        <h3 id="detail-description-heading" hidden>Description</h3>
+        <div class="description" id="detail-description" hidden></div>
       </div>
       <div class="readonly">Read-only POC · Changes made with Beads appear automatically.</div>
     </aside>
@@ -1532,9 +1569,62 @@
       updateGraphSearch(true);
     }
 
-    function namesFor(ids) {
-      const byId = new Map(graphData.nodes.map(node => [node.id, node.title]));
-      return ids.length ? ids.map(id => byId.get(id) || id).join(', ') : 'None';
+    function formatTimestamp(value) {
+      if (!value) return '';
+      const date = new Date(value);
+      return Number.isNaN(date.getTime()) ? value : date.toLocaleString();
+    }
+
+    function revealRelatedNode(id) {
+      const related = graphData?.nodes.find(node => node.id === id);
+      if (!related) return;
+      if (epicScopeId && !nodesInCurrentScope(graphData).some(node => node.id === id)) leaveEpicScope();
+      if (!nodePositions.has(id)) {
+        visibleStates.add(related.state);
+        visibleTypes.add(related.type);
+        renderGraph(graphData);
+      }
+      selectNode(id);
+      focusGraphNode(id);
+      scheduleViewSave();
+    }
+
+    function renderRelatedWork(rowId, containerId, relationships) {
+      const row = el(rowId);
+      const container = el(containerId);
+      container.replaceChildren();
+      row.hidden = !relationships.length;
+      relationships.forEach(relationship => {
+        const related = graphData.nodes.find(node => node.id === relationship.id);
+        const button = document.createElement('button');
+        button.className = 'related-item';
+        button.type = 'button';
+        const title = document.createElement('span');
+        title.className = 'related-title';
+        title.textContent = related?.title || relationship.id;
+        const kind = document.createElement('span');
+        kind.className = 'related-kind';
+        kind.textContent = `${typeLabel(relationship.type)} · ${relationship.id}`;
+        button.append(title, kind);
+        button.addEventListener('click', () => revealRelatedNode(relationship.id));
+        container.append(button);
+      });
+      return relationships.length > 0;
+    }
+
+    function relationshipsFor(id) {
+      const result = {
+        prerequisites: [], dependents: [], parent: [], children: [], discovered: [], followons: [],
+      };
+      graphData.edges.forEach(edge => {
+        if (edge.kind === 'blocking' && edge.target === id) result.prerequisites.push({ id: edge.source, type: edge.type });
+        if (edge.kind === 'blocking' && edge.source === id) result.dependents.push({ id: edge.target, type: edge.type });
+        if (edge.kind === 'hierarchy' && edge.target === id) result.parent.push({ id: edge.source, type: edge.type });
+        if (edge.kind === 'hierarchy' && edge.source === id) result.children.push({ id: edge.target, type: edge.type });
+        if (edge.kind === 'follow-on' && edge.target === id) result.discovered.push({ id: edge.source, type: edge.type });
+        if (edge.kind === 'follow-on' && edge.source === id) result.followons.push({ id: edge.target, type: edge.type });
+      });
+      return result;
     }
 
     function selectNode(id, { preserveRelationshipNavigation = false } = {}) {
@@ -1555,12 +1645,44 @@
       el('detail-progress').textContent = node.epicProgress
         ? `${node.epicProgress.completed} / ${node.epicProgress.total} closed`
         : '';
-      el('detail-blockers').textContent = namesFor(node.blockers);
-      el('detail-dependents').textContent = namesFor(node.dependents);
-      el('detail-labels').textContent = node.labels.length ? node.labels.join(', ') : 'None';
-      el('detail-assignee').textContent = node.assignee || 'Unassigned';
+      el('detail-priority-row').hidden = node.priority === null || node.priority === undefined;
+      el('detail-priority').textContent = node.priority === null || node.priority === undefined ? '' : `P${node.priority}`;
+      el('detail-labels-row').hidden = !node.labels.length;
+      el('detail-labels').textContent = node.labels.join(', ');
+      el('detail-assignee-row').hidden = !node.assignee;
+      el('detail-assignee').textContent = node.assignee;
+      ['created', 'updated', 'started', 'closed'].forEach(field => {
+        const value = node[`${field}At`];
+        el(`detail-${field}-row`).hidden = !value;
+        el(`detail-${field}`).textContent = formatTimestamp(value);
+      });
+      const relationships = relationshipsFor(node.id);
+      const hasRelationships = [
+        renderRelatedWork('detail-prerequisites-row', 'detail-prerequisites', relationships.prerequisites),
+        renderRelatedWork('detail-dependents-row', 'detail-dependents', relationships.dependents),
+        renderRelatedWork('detail-parent-row', 'detail-parent', relationships.parent),
+        renderRelatedWork('detail-children-row', 'detail-children', relationships.children),
+        renderRelatedWork('detail-discovered-row', 'detail-discovered', relationships.discovered),
+        renderRelatedWork('detail-followons-row', 'detail-followons', relationships.followons),
+      ].some(Boolean);
+      el('detail-relationships-heading').hidden = !hasRelationships;
+      el('detail-relationships').hidden = !hasRelationships;
+      el('detail-description-heading').hidden = !node.description;
+      el('detail-description').hidden = !node.description;
       el('detail-description').textContent = node.description;
       applyRelationshipContext();
+    }
+
+    async function copySelectedId() {
+      if (!selectedId) return;
+      const button = el('detail-copy');
+      try {
+        await navigator.clipboard.writeText(selectedId);
+        button.textContent = 'Copied';
+      } catch (error) {
+        button.textContent = 'Copy failed';
+      }
+      window.setTimeout(() => { button.textContent = 'Copy ID'; }, 1400);
     }
 
     async function loadGraph({ background = false } = {}) {
@@ -1716,6 +1838,7 @@
       button.addEventListener('click', () => toggleStatus(button.dataset.state));
     });
     el('status-show-all').addEventListener('click', showAllFilters);
+    el('detail-copy').addEventListener('click', copySelectedId);
     el('ready-only').addEventListener('click', showReadyWork);
     el('epic-overview-open').addEventListener('click', openEpicOverview);
     el('epic-overview').addEventListener('click', event => {
