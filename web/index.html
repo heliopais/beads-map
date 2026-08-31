@@ -233,6 +233,21 @@
     .zoom-controls button:disabled, .search-controls button:disabled { cursor: default; opacity: .45; }
     .zoom-level { min-width: 40px; text-align: center; font-variant-numeric: tabular-nums; }
     .canvas-frame { position: relative; height: calc(100% - 28px); }
+    .scale-gate {
+      height: 100%;
+      display: grid;
+      place-content: center;
+      gap: 10px;
+      padding: 32px;
+      color: var(--muted);
+      text-align: center;
+      border: 1px solid var(--line);
+      border-radius: 11px;
+      background: var(--surface);
+    }
+    .scale-gate[hidden] { display: none; }
+    .scale-gate strong { color: var(--text); font-size: 17px; }
+    .scale-gate .header-button { justify-self: center; }
     .scroller {
       height: 100%;
       overflow: auto;
@@ -563,6 +578,11 @@
         </div>
       </div>
       <div class="canvas-frame">
+        <div class="scale-gate" id="scale-gate" role="status" hidden>
+          <strong id="scale-gate-title"></strong>
+          <span id="scale-gate-message"></span>
+          <button class="header-button" id="scale-gate-render" type="button">Render best effort</button>
+        </div>
         <div class="scroller" id="graph-scroller"><svg id="graph" role="img" aria-label="Beads dependency graph"></svg></div>
         <div class="minimap" id="minimap" role="navigation" aria-label="Graph minimap" hidden>
           <svg id="minimap-svg" preserveAspectRatio="none" aria-hidden="true"></svg>
@@ -678,6 +698,8 @@
     const Y_GAP = 52;
     const MIN_ZOOM = 0.35;
     const MAX_ZOOM = 2;
+    const MAX_RENDERED_NODES = 1000;
+    const MAX_RENDERED_EDGES = 3000;
     const ALL_STATES = ['completed', 'in-progress', 'ready', 'blocked', 'deferred'];
     const UNASSIGNED = '__unassigned__';
     const visibleStates = new Set(ALL_STATES);
@@ -711,6 +733,7 @@
     let changeHighlights = new Map();
     let changeCueTimer = null;
     let editSession = null;
+    let bestEffortSnapshotHash = null;
 
     const el = id => document.getElementById(id);
     const svgElement = (name, attributes = {}) => {
@@ -2000,6 +2023,13 @@
       scheduleViewSave();
     }
 
+    function renderBestEffortGraph() {
+      if (!graphData) return;
+      bestEffortSnapshotHash = snapshotHash;
+      renderGraph(graphData);
+      fitGraph();
+    }
+
     let canvasGesture = null;
 
     function beginCanvasGesture(event) {
@@ -2136,6 +2166,21 @@
       const visibleNodes = scopedNodes.filter(node => matchingIds.has(node.id) || contextIds.has(node.id));
       const visibleIds = new Set(visibleNodes.map(node => node.id));
       const visibleEdges = data.edges.filter(edge => visibleIds.has(edge.source) && visibleIds.has(edge.target));
+      const scaleGateRequired = visibleNodes.length > MAX_RENDERED_NODES || visibleEdges.length > MAX_RENDERED_EDGES;
+      const bestEffortEnabled = bestEffortSnapshotHash === snapshotHash;
+      el('scale-gate').hidden = !scaleGateRequired || bestEffortEnabled;
+      el('graph-scroller').hidden = scaleGateRequired && !bestEffortEnabled;
+      if (scaleGateRequired && !bestEffortEnabled) {
+        el('minimap').hidden = true;
+        nodePositions = new Map();
+        nodeHeights = new Map();
+        el('scale-gate-title').textContent = `${data.nodes.length} issues · ${data.edges.length} relationships`;
+        el('scale-gate-message').textContent = `${visibleNodes.length} issues and ${visibleEdges.length} relationships match the current scope and filters. Narrow the graph below ${MAX_RENDERED_NODES.toLocaleString()} issues and ${MAX_RENDERED_EDGES.toLocaleString()} relationships, or render it on a best-effort basis.`;
+        el('counts').textContent = `${data.nodes.length} issues · ${data.edges.length} relationships · graph paused`;
+        if (selectedId) clearDetails();
+        updateGraphSearch(true);
+        return;
+      }
       const scopedIds = new Set(scopedNodes.map(node => node.id));
       const layoutEdges = data.edges.filter(edge => scopedIds.has(edge.source) && scopedIds.has(edge.target));
       const layoutKey = `${data.path}\u0000${epicScopeId || ''}`;
@@ -2755,6 +2800,7 @@
     el('ready-only').addEventListener('click', showReadyWork);
     el('epic-overview-open').addEventListener('click', openEpicOverview);
     el('relayout-graph').addEventListener('click', relayoutGraph);
+    el('scale-gate-render').addEventListener('click', renderBestEffortGraph);
     el('export-graph').addEventListener('click', exportCurrentGraph);
     el('epic-overview').addEventListener('click', event => {
       if (event.target === el('epic-overview')) el('epic-overview').close();

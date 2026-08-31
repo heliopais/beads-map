@@ -729,6 +729,17 @@ class PackagingSmokeTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("--no-browser", result.stdout)
 
+    def test_scale_fixture_help(self) -> None:
+        result = subprocess.run(
+            [sys.executable, str(ROOT / "tests" / "scale_fixture.py"), "--help"],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("--nodes", result.stdout)
+        self.assertIn("--edges", result.stdout)
+
 
 if __name__ == "__main__":
     unittest.main()

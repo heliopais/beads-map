@@ -79,6 +79,11 @@ canvas space to pan, or `Cmd`-drag vertically to zoom around the pointer. The
 minimap appears when the graph extends beyond the viewport; click or drag it to
 navigate the larger canvas. Export SVG downloads the currently rendered scope
 and filters with resolved styling entirely in the browser. The
+supported rendering envelope is 1,000 displayed issues and 3,000 displayed
+relationships. Above it, the canvas pauses with complete snapshot counts and a
+recommendation to narrow the existing filters; **Render best effort** explicitly
+overrides the gate for that snapshot. The repeatable browser fixture and latest
+measurements are in `docs/scale-verification.md`. The
 graph checks for Beads changes every five seconds and skips redrawing when the
 snapshot is unchanged. If a read fails, the last good graph stays visible and
 is marked stale. After a successful refresh, added, newly completed, and
