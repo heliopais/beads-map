@@ -80,6 +80,12 @@ is marked stale. After a successful refresh, added, newly completed, and
 otherwise updated work is marked briefly by comparing only the two in-memory
 snapshots; no history is stored.
 
+Node coordinates are cached in memory per repository and epic scope. Filters
+and metadata-only refreshes therefore preserve the user's mental map, while a
+dependency change recomputes its connected component and leaves unrelated work
+in place where space permits. **Re-layout** discards the current scope's cache
+and recomputes the full arrangement; no manual coordinates are persisted.
+
 Use **Edit** in the selected-bead details panel to change title, description,
 priority, assignee, or labels. Save uses `bd update`, checks that the repository
 snapshot has not changed since editing began, and refreshes the graph from Beads

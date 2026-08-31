@@ -531,6 +531,7 @@
         </div>
         <div class="graph-tools">
           <button class="tool-button" id="epic-overview-open" type="button">Epics</button>
+          <button class="tool-button" id="relayout-graph" type="button" disabled>Re-layout</button>
           <button class="tool-button" id="export-graph" type="button" disabled>Export SVG</button>
           <span class="export-status" id="export-status" role="status"></span>
           <span>Left → right · Double-click an epic or use ⤢ to open its sub-map</span>
@@ -676,6 +677,7 @@
     let viewSaveTimer = null;
     let nodePositions = new Map();
     let nodeHeights = new Map();
+    const layoutCache = new Map();
     let searchMatches = [];
     let searchIndex = -1;
     let relationshipNavigation = null;
@@ -735,6 +737,7 @@
       el('repository-add').disabled = busy;
       el('repository-remove').disabled = busy || !select.value;
       el('refresh').disabled = busy || !select.value;
+      el('relayout-graph').disabled = busy || !graphData;
       el('export-graph').disabled = busy || !graphData;
     }
 
@@ -1777,6 +1780,114 @@
       return columns;
     }
 
+    function computeLayoutPositions(nodes, edges) {
+      const ranks = rankNodes(nodes, edges);
+      const columns = orderColumns(nodes, edges, ranks);
+      const positions = new Map();
+      for (const [column, columnNodes] of columns) {
+        columnNodes.forEach((node, row) => positions.set(node.id, {
+          x: 48 + column * (NODE_W + X_GAP),
+          y: 48 + row * (NODE_H + Y_GAP),
+        }));
+      }
+      return positions;
+    }
+
+    function layoutEdgeMap(edges) {
+      return new Map(edges.map(edge => [
+        `${edge.source}\u0000${edge.target}\u0000${edge.kind}`,
+        { source: edge.source, target: edge.target },
+      ]));
+    }
+
+    function sameSet(left, right) {
+      return left.size === right.size && [...left].every(value => right.has(value));
+    }
+
+    function stableLayoutPositions(key, nodes, edges) {
+      const nodeIds = new Set(nodes.map(node => node.id));
+      const edgeMap = layoutEdgeMap(edges);
+      const edgeIds = new Set(edgeMap.keys());
+      const cached = layoutCache.get(key);
+      if (cached && sameSet(nodeIds, cached.nodeIds) && sameSet(edgeIds, cached.edgeIds)) {
+        return new Map(cached.positions);
+      }
+
+      const candidate = computeLayoutPositions(nodes, edges);
+      let positions = candidate;
+      if (cached) {
+        const changed = new Set();
+        nodeIds.forEach(id => {
+          if (!cached.nodeIds.has(id) || !cached.positions.has(id)) changed.add(id);
+        });
+        cached.nodeIds.forEach(id => {
+          if (!nodeIds.has(id)) changed.add(id);
+        });
+        edgeMap.forEach((edge, id) => {
+          if (!cached.edgeIds.has(id)) {
+            changed.add(edge.source);
+            changed.add(edge.target);
+          }
+        });
+        cached.edgeMap.forEach((edge, id) => {
+          if (!edgeIds.has(id)) {
+            changed.add(edge.source);
+            changed.add(edge.target);
+          }
+        });
+
+        const adjacency = new Map();
+        const connect = edge => {
+          if (!adjacency.has(edge.source)) adjacency.set(edge.source, []);
+          if (!adjacency.has(edge.target)) adjacency.set(edge.target, []);
+          adjacency.get(edge.source).push(edge.target);
+          adjacency.get(edge.target).push(edge.source);
+        };
+        edgeMap.forEach(connect);
+        cached.edgeMap.forEach(connect);
+        const queue = [...changed];
+        for (let index = 0; index < queue.length; index += 1) {
+          (adjacency.get(queue[index]) || []).forEach(id => {
+            if (changed.has(id)) return;
+            changed.add(id);
+            queue.push(id);
+          });
+        }
+
+        positions = new Map();
+        const occupied = new Set();
+        nodes.forEach(node => {
+          if (changed.has(node.id) || !cached.positions.has(node.id)) return;
+          const position = cached.positions.get(node.id);
+          positions.set(node.id, position);
+          occupied.add(`${position.x}\u0000${position.y}`);
+        });
+        const affected = nodes.filter(node => changed.has(node.id) || !cached.positions.has(node.id));
+        const rowStep = NODE_H + Y_GAP;
+        let offsetRows = 0;
+        while (offsetRows <= nodes.length) {
+          const proposed = affected.map(node => {
+            const position = candidate.get(node.id);
+            return [node.id, { x: position.x, y: position.y + offsetRows * rowStep }];
+          });
+          if (proposed.every(([, position]) => !occupied.has(`${position.x}\u0000${position.y}`))) {
+            proposed.forEach(([id, position]) => positions.set(id, position));
+            break;
+          }
+          offsetRows += 1;
+        }
+        if (positions.size !== nodes.length) positions = candidate;
+      }
+
+      layoutCache.set(key, {
+        nodeIds,
+        edgeIds,
+        edgeMap,
+        positions: new Map(positions),
+      });
+      return positions;
+    }
+
     function routedEdgePath(startX, startY, laneX, endX, endY) {
       if (Math.abs(endY - startY) < 1) return `M${startX} ${startY} H${endX}`;
       const direction = Math.sign(endY - startY);
@@ -1838,6 +1949,16 @@
       scheduleViewSave();
     }
 
+    function relayoutGraph() {
+      if (!graphData) return;
+      layoutCache.delete(`${graphData.path}\u0000${epicScopeId || ''}`);
+      renderGraph(graphData);
+      const button = el('relayout-graph');
+      button.textContent = 'Re-laid out';
+      window.setTimeout(() => { button.textContent = 'Re-layout'; }, 1400);
+      scheduleViewSave();
+    }
+
     let canvasGesture = null;
 
     function beginCanvasGesture(event) {
@@ -1893,6 +2014,12 @@
 
     function renderGraph(data) {
       const repositoryChanged = currentRepository !== data.path;
+      const scroller = el('graph-scroller');
+      const previousViewport = {
+        left: scroller.scrollLeft,
+        top: scroller.scrollTop,
+        selectedPosition: selectedId ? nodePositions.get(selectedId) : null,
+      };
       const nextTypes = [...new Set(data.nodes.map(node => node.type))].sort();
       const nextLabels = [...new Set(data.nodes.flatMap(node => node.labels || []))].sort();
       const nextAssignees = [...new Set(data.nodes.map(node => node.assignee || UNASSIGNED))]
@@ -1968,32 +2095,34 @@
       const visibleNodes = scopedNodes.filter(node => matchingIds.has(node.id) || contextIds.has(node.id));
       const visibleIds = new Set(visibleNodes.map(node => node.id));
       const visibleEdges = data.edges.filter(edge => visibleIds.has(edge.source) && visibleIds.has(edge.target));
-      const ranks = rankNodes(visibleNodes, visibleEdges);
-      const columns = orderColumns(visibleNodes, visibleEdges, ranks);
-
-      const positions = new Map();
+      const scopedIds = new Set(scopedNodes.map(node => node.id));
+      const layoutEdges = data.edges.filter(edge => scopedIds.has(edge.source) && scopedIds.has(edge.target));
+      const layoutKey = `${data.path}\u0000${epicScopeId || ''}`;
+      const positions = stableLayoutPositions(layoutKey, scopedNodes, layoutEdges);
       const heights = new Map(visibleNodes.map(node => [
         node.id,
         contextIds.has(node.id) ? CONTEXT_NODE_H : NODE_H,
       ]));
-      let maxRows = 1;
-      for (const [column, nodes] of columns) {
-        maxRows = Math.max(maxRows, nodes.length);
-        nodes.forEach((node, row) => positions.set(node.id, {
-          x: 48 + column * (NODE_W + X_GAP),
-          y: 48 + row * (NODE_H + Y_GAP),
-        }));
-      }
-      const maxRank = Math.max(0, ...ranks.values());
-      const width = Math.max(760, 96 + (maxRank + 1) * NODE_W + maxRank * X_GAP);
-      const height = Math.max(520, 96 + maxRows * NODE_H + (maxRows - 1) * Y_GAP);
+      const positionValues = [...positions.values()];
+      const width = Math.max(760, Math.max(48, ...positionValues.map(position => position.x)) + NODE_W + 48);
+      const height = Math.max(520, Math.max(48, ...positionValues.map(position => position.y)) + NODE_H + 48);
       graphSize = { width, height };
-      nodePositions = positions;
+      nodePositions = new Map(visibleNodes.map(node => [node.id, positions.get(node.id)]));
       nodeHeights = heights;
       svg.setAttribute('viewBox', `0 0 ${width} ${height}`);
       setZoom(zoom, false);
       renderMinimap(visibleNodes, positions);
-      if (savedScroll) el('graph-scroller').scrollTo(savedScroll);
+      if (savedScroll) scroller.scrollTo(savedScroll);
+      else if (!repositoryChanged) {
+        const nextSelectedPosition = selectedId ? nodePositions.get(selectedId) : null;
+        const deltaX = previousViewport.selectedPosition && nextSelectedPosition
+          ? (nextSelectedPosition.x - previousViewport.selectedPosition.x) * zoom
+          : 0;
+        const deltaY = previousViewport.selectedPosition && nextSelectedPosition
+          ? (nextSelectedPosition.y - previousViewport.selectedPosition.y) * zoom
+          : 0;
+        scroller.scrollTo({ left: previousViewport.left + deltaX, top: previousViewport.top + deltaY });
+      }
 
       const defs = svgElement('defs');
       const markerColors = {
@@ -2028,7 +2157,7 @@
 
       const edgesByTargetColumn = new Map();
       visibleEdges.forEach(edge => {
-        const column = ranks.get(edge.target) || 0;
+        const column = positions.get(edge.target)?.x || 0;
         if (!edgesByTargetColumn.has(column)) edgesByTargetColumn.set(column, []);
         edgesByTargetColumn.get(column).push(edge);
       });
@@ -2402,6 +2531,9 @@
           body: JSON.stringify({ path }),
         });
         renderCatalog(catalog);
+        [...layoutCache.keys()].forEach(key => {
+          if (key.startsWith(`${path}\u0000`)) layoutCache.delete(key);
+        });
         currentRepository = null;
         graphData = null;
         snapshotHash = null;
@@ -2484,6 +2616,7 @@
     el('detail-conflict-reload').addEventListener('click', reloadMetadataDraft);
     el('ready-only').addEventListener('click', showReadyWork);
     el('epic-overview-open').addEventListener('click', openEpicOverview);
+    el('relayout-graph').addEventListener('click', relayoutGraph);
     el('export-graph').addEventListener('click', exportCurrentGraph);
     el('epic-overview').addEventListener('click', event => {
       if (event.target === el('epic-overview')) el('epic-overview').close();
