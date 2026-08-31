@@ -26,7 +26,7 @@ except ImportError:  # pragma: no cover - Windows is not currently supported.
     fcntl = None
 
 
-__version__ = "0.2.0"
+__version__ = "0.2.1"
 BLOCKING_DEPENDENCIES = {"blocks", "conditional-blocks", "waits-for"}
 DISPLAYED_DEPENDENCIES = BLOCKING_DEPENDENCIES | {"discovered-from", "parent-child"}
 VIEW_STATES = {"completed", "in-progress", "ready", "blocked", "deferred"}
@@ -232,6 +232,18 @@ class RepositoryCatalog:
                     if isinstance(value, str) and value.strip() and len(value) <= 128
                 }
             )
+        for field, maximum_length in (("selectedLabels", 100), ("selectedAssignees", 200)):
+            values = view.get(field)
+            if isinstance(values, list):
+                normalized[field] = sorted(
+                    {
+                        value.strip()
+                        for value in values
+                        if isinstance(value, str)
+                        and value.strip()
+                        and len(value.strip()) <= maximum_length
+                    }
+                )
         return normalized
 
     @contextmanager

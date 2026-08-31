@@ -45,12 +45,15 @@ or downstream relationships and Up/Down to cycle multiple choices; the opposite
 horizontal arrow returns to the starting node. Select it again or press Escape
 to clear. The details panel groups available metadata and dates, exposes
 clickable prerequisite, dependent, hierarchy, and follow-on relationships, and
-can copy the selected bead ID. Search finds work by title or ID without filtering or relaying out the
-graph; Enter and Shift-Enter cycle through matches. The status chips show or
-hide Completed, In progress, Ready, Blocked, and Deferred work; the adjacent
-type chips combine with them to narrow the graph further, and Show all resets
-both. What’s ready? applies a one-click preset for Ready work across every work
-type. If filters hide every item, the canvas explains that Show all restores
+can copy the selected bead ID. Search finds work by ID, title, description,
+label, or assignee without filtering or relaying out the graph; Enter and
+Shift-Enter cycle through matches. The status chips show or hide Completed, In
+progress, Ready, Blocked, and Deferred work; the adjacent type chips and
+multi-select Label and Assignee menus combine with them to narrow the graph
+further. Multiple selections within a menu are alternatives, while separate
+filter groups combine. Show all resets every filter. What’s ready? applies a
+one-click preset for Ready work across every work type. If filters hide every
+item, the canvas explains that Show all restores
 the graph; an actually empty repository uses different wording. Epic nodes with
 direct human-facing children show a simple closed/total
 count; deferred children remain incomplete, and the count never changes the

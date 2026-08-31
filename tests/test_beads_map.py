@@ -626,6 +626,8 @@ class RepositoryCatalogTests(unittest.TestCase):
                 "selectedId": "beads-map-ow0",
                 "visibleStates": ["ready", "in-progress"],
                 "visibleTypes": ["feature", "task", "feature", "", 7],
+                "selectedLabels": ["frontend", "urgent", "frontend", "", 7],
+                "selectedAssignees": ["alice", "__unassigned__", "alice", "", 7],
                 "nodes": [{"id": "must-not-persist"}],
             },
         )
@@ -636,6 +638,8 @@ class RepositoryCatalogTests(unittest.TestCase):
         self.assertEqual(view["selectedId"], "beads-map-ow0")
         self.assertEqual(view["visibleStates"], ["in-progress", "ready"])
         self.assertEqual(view["visibleTypes"], ["feature", "task"])
+        self.assertEqual(view["selectedLabels"], ["frontend", "urgent"])
+        self.assertEqual(view["selectedAssignees"], ["__unassigned__", "alice"])
         self.assertNotIn("nodes", view)
         if beads_map.os.name != "nt":
             mode = stat.S_IMODE(self.catalog_path.stat().st_mode)
