@@ -40,8 +40,11 @@ edge gutters. Solid edges are prerequisites, dashed edges are follow-on
 provenance, and dotted edges are parent-child hierarchy; only prerequisites
 affect Blocked state. Selecting a node shows its details, highlights direct
 upstream and downstream relationships, and fades unrelated work without moving
-the graph. With a graph node focused, use Left/Right to enter its direct upstream
-or downstream relationships and Up/Down to cycle multiple choices; the opposite
+the graph. The details panel can instead focus the complete prerequisite
+Blockers path, dependent outcomes, or Both; these modes follow prerequisite
+relationships transitively while leaving filters and node positions unchanged.
+With a graph node focused, use Left/Right to enter its direct upstream or
+downstream relationships and Up/Down to cycle multiple choices; the opposite
 horizontal arrow returns to the starting node. Select it again or press Escape
 to clear. The details panel groups available metadata and dates, exposes
 clickable prerequisite, dependent, hierarchy, and follow-on relationships, and

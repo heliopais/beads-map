@@ -413,6 +413,17 @@
     .selection-context { margin: -8px 0 16px; color: var(--muted); font-size: 11px; }
     .selection-context .upstream { color: var(--blocked); }
     .selection-context .downstream { color: var(--ready); }
+    .path-focus { display: flex; flex-wrap: wrap; align-items: center; gap: 5px; margin-top: 8px; }
+    .path-focus button {
+      padding: 3px 7px;
+      color: var(--muted);
+      background: transparent;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      cursor: pointer;
+    }
+    .path-focus button[aria-pressed="true"] { color: var(--focus); border-color: var(--focus); background: #4387d817; }
+    .path-focus button:hover { border-color: var(--focus); }
     .detail-edit-form { display: grid; gap: 13px; margin-top: 16px; }
     .detail-edit-form[hidden] { display: none; }
     .detail-field { display: grid; gap: 5px; color: var(--muted); font-size: 11px; font-weight: 650; }
@@ -548,7 +559,14 @@
           <h2 id="detail-title"></h2>
           <div class="state" id="detail-state"></div>
           <div class="selection-context" id="selection-context" hidden>
-            ← <span class="upstream">Upstream</span> · <span class="downstream">Downstream</span> → · ↑/↓ cycle · Escape to clear
+            <div>← <span class="upstream">Upstream</span> · <span class="downstream">Downstream</span> → · ↑/↓ cycle · Escape to clear</div>
+            <div class="path-focus" role="group" aria-label="Dependency path focus">
+              <span>Focus</span>
+              <button type="button" data-path-focus="direct" aria-pressed="true">Direct</button>
+              <button type="button" data-path-focus="blockers" aria-pressed="false">Blockers</button>
+              <button type="button" data-path-focus="dependents" aria-pressed="false">Dependents</button>
+              <button type="button" data-path-focus="both" aria-pressed="false">Both</button>
+            </div>
           </div>
           <h3>Metadata</h3>
           <dl>
@@ -650,6 +668,7 @@
     let searchMatches = [];
     let searchIndex = -1;
     let relationshipNavigation = null;
+    let pathFocusMode = 'direct';
     let epicScopeId = null;
     let fullMapView = null;
     let minimapGesture = null;
@@ -1333,14 +1352,51 @@
       const upstream = new Set();
       const downstream = new Set();
       if (selectedId && graphData) {
-        graphData.edges.forEach(edge => {
-          if (edge.target === selectedId) upstream.add(edge.source);
-          if (edge.source === selectedId) downstream.add(edge.target);
-        });
+        const visibleEdges = graphData.edges.filter(edge => (
+          nodePositions.has(edge.source) && nodePositions.has(edge.target)
+        ));
+        if (pathFocusMode === 'direct') {
+          visibleEdges.forEach(edge => {
+            if (edge.target === selectedId) upstream.add(edge.source);
+            if (edge.source === selectedId) downstream.add(edge.target);
+          });
+        } else {
+          const blockingEdges = visibleEdges.filter(edge => edge.kind === 'blocking');
+          const incoming = new Map();
+          const outgoing = new Map();
+          blockingEdges.forEach(edge => {
+            if (!incoming.has(edge.target)) incoming.set(edge.target, []);
+            if (!outgoing.has(edge.source)) outgoing.set(edge.source, []);
+            incoming.get(edge.target).push(edge.source);
+            outgoing.get(edge.source).push(edge.target);
+          });
+          const collect = (neighbors, result) => {
+            const queue = [selectedId];
+            for (let index = 0; index < queue.length; index += 1) {
+              const current = queue[index];
+              (neighbors.get(current) || []).forEach(id => {
+                if (id === selectedId || result.has(id)) return;
+                result.add(id);
+                queue.push(id);
+              });
+            }
+          };
+          if (pathFocusMode === 'blockers' || pathFocusMode === 'both') collect(incoming, upstream);
+          if (pathFocusMode === 'dependents' || pathFocusMode === 'both') collect(outgoing, downstream);
+        }
       }
       document.querySelectorAll('.edge').forEach(edge => {
-        const isUpstream = Boolean(selectedId) && edge.dataset.target === selectedId;
-        const isDownstream = Boolean(selectedId) && edge.dataset.source === selectedId;
+        const directFocus = pathFocusMode === 'direct';
+        const isUpstream = Boolean(selectedId) && (directFocus
+          ? edge.dataset.target === selectedId
+          : edge.dataset.kind === 'blocking'
+            && upstream.has(edge.dataset.source)
+            && (edge.dataset.target === selectedId || upstream.has(edge.dataset.target)));
+        const isDownstream = Boolean(selectedId) && (directFocus
+          ? edge.dataset.source === selectedId
+          : edge.dataset.kind === 'blocking'
+            && (edge.dataset.source === selectedId || downstream.has(edge.dataset.source))
+            && downstream.has(edge.dataset.target));
         edge.classList.toggle('context-upstream', isUpstream);
         edge.classList.toggle('context-downstream', isDownstream);
         edge.classList.toggle('context-muted', Boolean(selectedId) && !isUpstream && !isDownstream);
@@ -1359,12 +1415,22 @@
           'context-muted',
           Boolean(selectedId) && id !== selectedId && !isUpstream && !isDownstream,
         );
+        const qualifier = pathFocusMode === 'direct' ? 'directly ' : 'on the dependency path ';
         const relation = isUpstream
-          ? isDownstream ? ', directly upstream and downstream of selection' : ', directly upstream of selection'
-          : isDownstream ? ', directly downstream of selection' : '';
+          ? isDownstream ? `, ${qualifier}upstream and downstream of selection` : `, ${qualifier}upstream of selection`
+          : isDownstream ? `, ${qualifier}downstream of selection` : '';
         node.setAttribute('aria-label', `${node.dataset.baseLabel}${relation}`);
       });
       el('selection-context').hidden = !selectedId;
+      document.querySelectorAll('[data-path-focus]').forEach(button => {
+        button.setAttribute('aria-pressed', String(button.dataset.pathFocus === pathFocusMode));
+      });
+    }
+
+    function setPathFocus(mode) {
+      if (!selectedId || !['direct', 'blockers', 'dependents', 'both'].includes(mode)) return;
+      pathFocusMode = mode;
+      applyRelationshipContext();
     }
 
     function visibleRelationshipIds(anchorId, direction) {
@@ -1429,6 +1495,7 @@
       cancelMetadataEdit();
       selectedId = null;
       relationshipNavigation = null;
+      pathFocusMode = 'direct';
       el('details').hidden = true;
       el('details-empty').hidden = false;
       document.querySelectorAll('.node').forEach(node => node.classList.remove('selected'));
@@ -2130,6 +2197,7 @@
       const node = graphData.nodes.find(candidate => candidate.id === id);
       if (!node) return false;
       if (editSession?.issueId !== id && !discardMetadataEdit('Discard your changes and select another bead?')) return false;
+      if (selectedId !== id) pathFocusMode = 'direct';
       if (!preserveRelationshipNavigation) relationshipNavigation = null;
       selectedId = id;
       document.querySelectorAll('.node').forEach(element => element.classList.toggle('selected', element.dataset.id === id));
@@ -2347,6 +2415,9 @@
     });
     document.querySelectorAll('[data-state]').forEach(button => {
       button.addEventListener('click', () => toggleStatus(button.dataset.state));
+    });
+    document.querySelectorAll('[data-path-focus]').forEach(button => {
+      button.addEventListener('click', () => setPathFocus(button.dataset.pathFocus));
     });
     el('status-show-all').addEventListener('click', showAllFilters);
     el('detail-copy').addEventListener('click', copySelectedId);
