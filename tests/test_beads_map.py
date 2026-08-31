@@ -662,6 +662,26 @@ class RepositoryCatalogTests(unittest.TestCase):
             catalog.add(ROOT)
         self.assertEqual(self.catalog_path.read_text(encoding="utf-8"), "not-json")
 
+    def test_unavailable_entries_remain_visible_and_can_be_replaced(self) -> None:
+        catalog = beads_map.RepositoryCatalog(self.catalog_path)
+        missing = (Path(self.temporary_directory.name) / "moved-repository").resolve()
+        invalid = Path(self.temporary_directory.name).resolve()
+        catalog.add(missing)
+        catalog.add(invalid, select=False)
+
+        entries = {item["path"]: item for item in catalog.payload()["repositories"]}
+        self.assertFalse(entries[str(missing.resolve())]["available"])
+        self.assertIn("missing or moved", entries[str(missing.resolve())]["error"])
+        self.assertFalse(entries[str(invalid.resolve())]["available"])
+        self.assertIn("not an initialized Beads", entries[str(invalid.resolve())]["error"])
+
+        catalog.save_view(missing, {"zoom": 1.4})
+        catalog.replace(missing, ROOT)
+        payload = catalog.payload()
+        self.assertNotIn(str(missing.resolve()), {item["path"] for item in payload["repositories"]})
+        self.assertIn(str(ROOT), {item["path"] for item in payload["repositories"]})
+        self.assertEqual(payload["views"][str(ROOT)]["zoom"], 1.4)
+
     def test_view_metadata_round_trips_without_issue_data(self) -> None:
         catalog = beads_map.RepositoryCatalog(self.catalog_path)
         catalog.add(ROOT)

@@ -19,6 +19,9 @@ to require a specific port. Repositories passed on the command line are
 remembered, along with the last selection. Later, `beads-map` reopens that
 catalog. You can also add and remove repositories from the header; on macOS,
 Add opens the native folder chooser, so no path entry is required.
+Missing, moved, unreadable, and invalid catalog entries remain visible with a
+warning. Select one to Retry it, Locate its replacement with the folder picker,
+or Remove only that catalog entry; failed recovery keeps the current graph.
 
 Upgrade or uninstall explicitly:
 

@@ -26,7 +26,7 @@ except ImportError:  # pragma: no cover - Windows is not currently supported.
     fcntl = None
 
 
-__version__ = "0.2.5"
+__version__ = "0.2.6"
 BLOCKING_DEPENDENCIES = {"blocks", "conditional-blocks", "waits-for"}
 DISPLAYED_DEPENDENCIES = BLOCKING_DEPENDENCIES | {"discovered-from", "parent-child"}
 VIEW_STATES = {"completed", "in-progress", "ready", "blocked", "deferred"}
@@ -154,6 +154,7 @@ class RepositoryCatalog:
     def __init__(self, path: Path):
         self.path = path
         self._lock = threading.Lock()
+        self._errors: dict[Path, str] = {}
         self._repositories: list[Path] = []
         self._selected: Path | None = None
         self._views: dict[str, dict] = {}
@@ -303,6 +304,7 @@ class RepositoryCatalog:
                 self._repositories.append(repository)
             if select or self._selected is None:
                 self._selected = repository
+            self._errors.pop(repository, None)
             self._save()
 
     def select(self, repository: Path) -> None:
@@ -310,6 +312,24 @@ class RepositoryCatalog:
             if repository not in self._repositories:
                 raise BeadsError("Repository is not in the catalog.")
             self._selected = repository
+            self._errors.pop(repository, None)
+            self._save()
+
+    def replace(self, previous: Path, repository: Path) -> None:
+        with self._current_state():
+            if previous not in self._repositories:
+                raise BeadsError("Repository is not in the catalog.")
+            index = self._repositories.index(previous)
+            self._repositories.pop(index)
+            if repository not in self._repositories:
+                self._repositories.insert(index, repository)
+            previous_view = self._views.pop(str(previous), None)
+            if previous_view is not None:
+                self._views[str(repository)] = previous_view
+            if self._selected == previous:
+                self._selected = repository
+            self._errors.pop(previous, None)
+            self._errors.pop(repository, None)
             self._save()
 
     def remove(self, repository: Path) -> None:
@@ -318,6 +338,7 @@ class RepositoryCatalog:
                 raise BeadsError("Repository is not in the catalog.")
             self._repositories.remove(repository)
             self._views.pop(str(repository), None)
+            self._errors.pop(repository, None)
             if self._selected == repository:
                 self._selected = self._repositories[0] if self._repositories else None
             self._save()
@@ -332,14 +353,32 @@ class RepositoryCatalog:
 
     def payload(self) -> dict:
         with self._current_state():
+            repositories = []
+            for path in self._repositories:
+                error = self._errors.get(path)
+                if error is None and not path.is_dir():
+                    error = "Repository folder is missing or moved."
+                elif error is None and not os.access(path, os.R_OK | os.X_OK):
+                    error = "Repository folder is not readable."
+                elif error is None and not (path / ".beads").is_dir():
+                    error = "Folder is not an initialized Beads repository."
+                repositories.append(
+                    {
+                        "name": path.name or str(path),
+                        "path": str(path),
+                        "available": error is None,
+                        "error": error,
+                    }
+                )
             return {
-                "repositories": [
-                    {"name": path.name or str(path), "path": str(path)}
-                    for path in self._repositories
-                ],
+                "repositories": repositories,
                 "selected": str(self._selected) if self._selected else None,
                 "views": self._views,
             }
+
+    def mark_unavailable(self, repository: Path, error: str) -> None:
+        with self._lock:
+            self._errors[repository] = error
 
     def save_view(self, repository: Path, view: dict) -> None:
         with self._current_state():
@@ -759,8 +798,53 @@ class AppHandler(BaseHTTPRequestHandler):
             except (BeadsError, OSError) as error:
                 self._send_json(400, {"error": str(error)})
             return
+        if path == "/api/repositories/locate":
+            try:
+                payload = self._read_json()
+                value = str(payload.get("path") or "")
+                if not value.strip():
+                    raise ValueError("Repository path is required.")
+                previous = Path(value).expanduser().resolve()
+                if not self.catalog.contains(previous):
+                    self._send_json(404, {"error": "Repository is not in the catalog."})
+                    return
+                repository = pick_repository()
+                if repository is None:
+                    self._send_json(200, {"cancelled": True})
+                    return
+                graph = self.snapshots.refresh(repository)
+                self.catalog.replace(previous, repository)
+                self.catalog.select(repository)
+                self._send_json(200, {"catalog": self.catalog.payload(), "graph": graph})
+            except (BeadsError, OSError, ValueError) as error:
+                self._send_json(400, {"error": str(error)})
+            return
         if path == "/api/issues/update":
             self._update_issue()
+            return
+        if path == "/api/repositories/select":
+            try:
+                payload = self._read_json()
+                value = str(payload.get("path") or "")
+                if not value.strip():
+                    raise ValueError("Repository path is required.")
+                repository = Path(value).expanduser().resolve()
+                if not self.catalog.contains(repository):
+                    self._send_json(404, {"error": "Repository is not in the catalog."})
+                    return
+                try:
+                    graph = self.snapshots.refresh(repository)
+                except (BeadsError, OSError) as error:
+                    self.catalog.mark_unavailable(repository, str(error))
+                    self._send_json(
+                        400,
+                        {"error": str(error), "catalog": self.catalog.payload()},
+                    )
+                    return
+                self.catalog.select(repository)
+                self._send_json(200, {"catalog": self.catalog.payload(), "graph": graph})
+            except (BeadsError, OSError, ValueError) as error:
+                self._send_json(400, {"error": str(error)})
             return
         try:
             payload = self._read_json()
@@ -775,14 +859,6 @@ class AppHandler(BaseHTTPRequestHandler):
             if path == "/api/repositories":
                 graph = self.snapshots.refresh(repository)
                 self.catalog.add(repository)
-                self._send_json(200, {"catalog": self.catalog.payload(), "graph": graph})
-                return
-            if path == "/api/repositories/select":
-                if not self.catalog.contains(repository):
-                    self._send_json(404, {"error": "Repository is not in the catalog."})
-                    return
-                graph = self.snapshots.refresh(repository)
-                self.catalog.select(repository)
                 self._send_json(200, {"catalog": self.catalog.payload(), "graph": graph})
                 return
         except (BeadsError, OSError, ValueError) as error:
@@ -820,7 +896,11 @@ class AppHandler(BaseHTTPRequestHandler):
         except IssueNotFound as error:
             self._send_json(404, {"error": str(error)})
         except (BeadsError, OSError) as error:
-            self._send_json(500, {"error": str(error)})
+            self.catalog.mark_unavailable(repository, str(error))
+            self._send_json(
+                500,
+                {"error": str(error), "catalog": self.catalog.payload()},
+            )
 
     def do_DELETE(self) -> None:  # noqa: N802 - BaseHTTPRequestHandler API
         if urlsplit(self.path).path != "/api/repositories":

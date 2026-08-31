@@ -55,6 +55,10 @@
     .brand { display: flex; align-items: center; gap: 12px; min-width: 0; }
     .brand strong { flex: 0 0 auto; font-size: 15px; }
     .repository-controls { display: flex; align-items: center; gap: 6px; min-width: 0; }
+    .repository-recovery { display: inline-flex; align-items: center; gap: 5px; color: #c65353; font-size: 11px; }
+    .repository-recovery[hidden] { display: none; }
+    .repository-recovery .header-button { padding: 4px 7px; }
+    .recovery-message { max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .repository-select {
       width: min(280px, 34vw);
       height: 34px;
@@ -493,6 +497,11 @@
         </select>
         <button class="header-button" id="repository-add" type="button">Add…</button>
         <button class="header-button" id="repository-remove" type="button">Remove</button>
+        <span class="repository-recovery" id="repository-recovery" hidden>
+          <span class="recovery-message" id="repository-recovery-message"></span>
+          <button class="header-button" id="repository-retry" type="button">Retry</button>
+          <button class="header-button" id="repository-locate" type="button">Locate…</button>
+        </span>
       </div>
     </div>
     <div class="spacer"></div>
@@ -678,6 +687,8 @@
     let availableTypes = [];
     let availableLabels = [];
     let availableAssignees = [];
+    let catalogRepositories = new Map();
+    let recoveryPath = null;
     let graphData = null;
     let selectedId = null;
     let currentRepository = null;
@@ -720,8 +731,19 @@
       return payload;
     }
 
-    function renderCatalog(catalog) {
+    function updateRepositoryRecovery() {
+      const repository = catalogRepositories.get(recoveryPath || el('repository-select').value);
+      const unavailable = repository && repository.available === false;
+      if (!unavailable) recoveryPath = null;
+      const recovery = el('repository-recovery');
+      recovery.hidden = !unavailable;
+      el('repository-recovery-message').textContent = unavailable ? `Unavailable: ${repository.error || 'Retry or locate it.'}` : '';
+      el('repository-recovery-message').title = unavailable ? repository.error || '' : '';
+    }
+
+    function renderCatalog(catalog, preferredPath = recoveryPath) {
       catalogViews = catalog.views || {};
+      catalogRepositories = new Map(catalog.repositories.map(repository => [repository.path, repository]));
       const select = el('repository-select');
       select.replaceChildren();
       if (!catalog.repositories.length) {
@@ -733,14 +755,19 @@
         catalog.repositories.forEach(repository => {
           const option = document.createElement('option');
           option.value = repository.path;
-          option.textContent = repository.name;
-          option.title = repository.path;
+          option.textContent = repository.available === false ? `⚠ ${repository.name}` : repository.name;
+          option.title = repository.error || repository.path;
           select.append(option);
         });
-        select.value = catalog.selected || catalog.repositories[0].path;
+        const selectedPath = preferredPath && catalogRepositories.has(preferredPath)
+          ? preferredPath
+          : catalog.selected || catalog.repositories[0].path;
+        select.value = selectedPath;
       }
       select.title = select.value;
       el('repository-remove').disabled = !select.value;
+      recoveryPath = catalogRepositories.get(select.value)?.available === false ? select.value : null;
+      updateRepositoryRecovery();
     }
 
     function setBusy(busy) {
@@ -748,6 +775,8 @@
       select.disabled = busy || !select.value;
       el('repository-add').disabled = busy;
       el('repository-remove').disabled = busy || !select.value;
+      el('repository-retry').disabled = busy;
+      el('repository-locate').disabled = busy;
       el('refresh').disabled = busy || !select.value;
       el('relayout-graph').disabled = busy || !graphData;
       el('export-graph').disabled = busy || !graphData;
@@ -2318,8 +2347,8 @@
         }
       });
 
-      el('repository-select').value = data.path;
-      el('repository-select').title = data.path;
+      el('repository-select').value = recoveryPath || data.path;
+      el('repository-select').title = recoveryPath || data.path;
       const issueCount = matchingNodes.length === scopedNodes.length
         ? `${scopedNodes.length} issues`
         : `${matchingNodes.length} of ${scopedNodes.length} issues`;
@@ -2511,6 +2540,7 @@
         el('workspace').hidden = false;
         applyGraph(payload);
       } catch (error) {
+        if (error.payload?.catalog) renderCatalog(error.payload.catalog, error.payload.catalog.selected);
         showError(error, Boolean(graphData));
       } finally {
         refreshing = false;
@@ -2518,8 +2548,14 @@
       }
     }
 
-    async function chooseRepository(path) {
-      if (!path || path === currentRepository) return;
+    async function chooseRepository(path, { retry = false } = {}) {
+      if (!path || (path === currentRepository && !retry)) return;
+      const catalogEntry = catalogRepositories.get(path);
+      if (catalogEntry?.available === false && !retry) {
+        recoveryPath = path;
+        updateRepositoryRecovery();
+        return;
+      }
       if (!discardMetadataEdit('Discard your changes and switch repositories?')) {
         el('repository-select').value = currentRepository || '';
         return;
@@ -2533,11 +2569,48 @@
           headers: { 'Content-Type': 'application/json', 'X-Beads-Map': '1' },
           body: JSON.stringify({ path }),
         });
+        recoveryPath = null;
         renderCatalog(payload.catalog);
         el('workspace').hidden = false;
         applyGraph(payload.graph);
       } catch (error) {
-        el('repository-select').value = currentRepository || '';
+        recoveryPath = path;
+        if (error.payload?.catalog) renderCatalog(error.payload.catalog, path);
+        else {
+          el('repository-select').value = path;
+          updateRepositoryRecovery();
+        }
+        showError(error, Boolean(graphData));
+      } finally {
+        setBusy(false);
+      }
+    }
+
+    async function retryRepository() {
+      if (recoveryPath) await chooseRepository(recoveryPath, { retry: true });
+    }
+
+    async function locateRepository() {
+      if (!recoveryPath) return;
+      if (!discardMetadataEdit('Discard your changes and locate this repository?')) return;
+      const previous = recoveryPath;
+      setBusy(true);
+      el('error').style.display = 'none';
+      try {
+        const payload = await requestJSON('/api/repositories/locate', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'X-Beads-Map': '1' },
+          body: JSON.stringify({ path: previous }),
+        });
+        if (payload.cancelled) return;
+        recoveryPath = null;
+        renderCatalog(payload.catalog);
+        el('workspace').hidden = false;
+        applyGraph(payload.graph);
+      } catch (error) {
+        recoveryPath = previous;
+        el('repository-select').value = previous;
+        updateRepositoryRecovery();
         showError(error, Boolean(graphData));
       } finally {
         setBusy(false);
@@ -2574,6 +2647,7 @@
       setBusy(true);
       el('error').style.display = 'none';
       try {
+        const removingCurrentGraph = path === currentRepository;
         const catalog = await requestJSON('/api/repositories', {
           method: 'DELETE',
           headers: { 'Content-Type': 'application/json', 'X-Beads-Map': '1' },
@@ -2583,6 +2657,14 @@
         [...layoutCache.keys()].forEach(key => {
           if (key.startsWith(`${path}\u0000`)) layoutCache.delete(key);
         });
+        recoveryPath = null;
+        if (!removingCurrentGraph && graphData) {
+          renderCatalog(catalog);
+          el('repository-select').value = currentRepository;
+          el('repository-select').title = currentRepository;
+          updateRepositoryRecovery();
+          return;
+        }
         currentRepository = null;
         graphData = null;
         snapshotHash = null;
@@ -2610,6 +2692,11 @@
       }
       try {
         renderCatalog(await requestJSON('/api/repositories'));
+        if (recoveryPath) {
+          showError(new Error(catalogRepositories.get(recoveryPath)?.error || 'Repository is unavailable.'));
+          setBusy(false);
+          return;
+        }
         await loadGraph();
       } catch (error) {
         showError(error);
@@ -2621,6 +2708,8 @@
     el('repository-select').addEventListener('change', event => chooseRepository(event.target.value));
     el('repository-add').addEventListener('click', addRepository);
     el('repository-remove').addEventListener('click', removeRepository);
+    el('repository-retry').addEventListener('click', retryRepository);
+    el('repository-locate').addEventListener('click', locateRepository);
     el('graph-search').addEventListener('input', () => updateGraphSearch(false));
     el('graph-search').addEventListener('keydown', event => {
       if (event.key === 'Enter') {
