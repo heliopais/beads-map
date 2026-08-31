@@ -55,8 +55,11 @@ progress, Ready, Blocked, and Deferred work; the adjacent type chips and
 multi-select Label and Assignee menus combine with them to narrow the graph
 further. Multiple selections within a menu are alternatives, while separate
 filter groups combine. Show all resets every filter. What’s ready? applies a
-one-click preset for Ready work across every work type. If filters hide every
-item, the canvas explains that Show all restores
+one-click preset for Ready work across every work type. When a filter hides an
+intermediary task between two matching tasks, the graph retains it as a compact,
+dashed Filter context card so the real prerequisite path remains visible and
+inspectable. These context cards are not counted as filter matches, and Show all
+restores their normal presentation. If filters hide every item, the canvas explains that Show all restores
 the graph; an actually empty repository uses different wording. Epic nodes with
 direct human-facing children show a simple closed/total
 count; deferred children remain incomplete, and the count never changes the

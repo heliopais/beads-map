@@ -269,6 +269,15 @@
     .node.deferred .accent { stroke: var(--deferred); }
     .node.epic rect:first-child { stroke: var(--epic); stroke-width: 2; }
     .node.completed { opacity: .64; }
+    .node.filter-context { opacity: .72; }
+    .node.filter-context rect:first-child {
+      fill: var(--surface-2);
+      stroke: var(--muted);
+      stroke-dasharray: 5 4;
+      filter: none;
+    }
+    .node.filter-context .node-meta { font-size: 9px; }
+    .node.filter-context .node-title { font-size: 12px; }
     .node.context-muted { opacity: .28; }
     .node.context-upstream, .node.context-downstream { opacity: 1; }
     .node:hover rect:first-child,
@@ -642,6 +651,7 @@
     const SVG = 'http://www.w3.org/2000/svg';
     const NODE_W = 240;
     const NODE_H = 82;
+    const CONTEXT_NODE_H = 46;
     const X_GAP = 180;
     const Y_GAP = 52;
     const MIN_ZOOM = 0.35;
@@ -665,6 +675,7 @@
     let catalogViews = {};
     let viewSaveTimer = null;
     let nodePositions = new Map();
+    let nodeHeights = new Map();
     let searchMatches = [];
     let searchIndex = -1;
     let relationshipNavigation = null;
@@ -1041,6 +1052,35 @@
       return data.nodes.filter(node => scopeIds.has(node.id));
     }
 
+    function dependencyPathContext(nodes, edges, matchingIds) {
+      if (matchingIds.size < 2) return new Set();
+      const scopedIds = new Set(nodes.map(node => node.id));
+      const outgoing = new Map(nodes.map(node => [node.id, []]));
+      const incoming = new Map(nodes.map(node => [node.id, []]));
+      edges.forEach(edge => {
+        if (edge.kind !== 'blocking' || !scopedIds.has(edge.source) || !scopedIds.has(edge.target)) return;
+        outgoing.get(edge.source).push(edge.target);
+        incoming.get(edge.target).push(edge.source);
+      });
+      const reachableFromMatches = new Set(matchingIds);
+      const canReachMatches = new Set(matchingIds);
+      const collect = (neighbors, seen) => {
+        const queue = [...matchingIds];
+        for (let index = 0; index < queue.length; index += 1) {
+          (neighbors.get(queue[index]) || []).forEach(id => {
+            if (seen.has(id)) return;
+            seen.add(id);
+            queue.push(id);
+          });
+        }
+      };
+      collect(outgoing, reachableFromMatches);
+      collect(incoming, canReachMatches);
+      return new Set(nodes
+        .map(node => node.id)
+        .filter(id => !matchingIds.has(id) && reachableFromMatches.has(id) && canReachMatches.has(id)));
+    }
+
     function updateScopeHeading(data) {
       const epic = epicScopeId ? data.nodes.find(node => node.id === epicScopeId) : null;
       el('scope-back').hidden = !epic;
@@ -1264,7 +1304,7 @@
       const scroller = el('graph-scroller');
       scroller.scrollTo({
         left: (position.x + NODE_W / 2) * zoom - scroller.clientWidth / 2,
-        top: (position.y + NODE_H / 2) * zoom - scroller.clientHeight / 2,
+        top: (position.y + (nodeHeights.get(id) || NODE_H) / 2) * zoom - scroller.clientHeight / 2,
         behavior: 'smooth',
       });
     }
@@ -1297,7 +1337,7 @@
           x: position.x,
           y: position.y,
           width: NODE_W,
-          height: NODE_H,
+          height: nodeHeights.get(node.id) || NODE_H,
           rx: 8,
         }));
       });
@@ -1917,18 +1957,25 @@
       updateScopeHeading(data);
       const svg = el('graph');
       svg.replaceChildren();
-      const visibleNodes = scopedNodes.filter(node => (
+      const matchingNodes = scopedNodes.filter(node => (
         visibleStates.has(node.state)
         && visibleTypes.has(node.type)
         && (selectedLabels.size === 0 || (node.labels || []).some(label => selectedLabels.has(label)))
         && (selectedAssignees.size === 0 || selectedAssignees.has(node.assignee || UNASSIGNED))
       ));
+      const matchingIds = new Set(matchingNodes.map(node => node.id));
+      const contextIds = dependencyPathContext(scopedNodes, data.edges, matchingIds);
+      const visibleNodes = scopedNodes.filter(node => matchingIds.has(node.id) || contextIds.has(node.id));
       const visibleIds = new Set(visibleNodes.map(node => node.id));
       const visibleEdges = data.edges.filter(edge => visibleIds.has(edge.source) && visibleIds.has(edge.target));
       const ranks = rankNodes(visibleNodes, visibleEdges);
       const columns = orderColumns(visibleNodes, visibleEdges, ranks);
 
       const positions = new Map();
+      const heights = new Map(visibleNodes.map(node => [
+        node.id,
+        contextIds.has(node.id) ? CONTEXT_NODE_H : NODE_H,
+      ]));
       let maxRows = 1;
       for (const [column, nodes] of columns) {
         maxRows = Math.max(maxRows, nodes.length);
@@ -1942,6 +1989,7 @@
       const height = Math.max(520, 96 + maxRows * NODE_H + (maxRows - 1) * Y_GAP);
       graphSize = { width, height };
       nodePositions = positions;
+      nodeHeights = heights;
       svg.setAttribute('viewBox', `0 0 ${width} ${height}`);
       setZoom(zoom, false);
       renderMinimap(visibleNodes, positions);
@@ -1962,7 +2010,7 @@
       });
       svg.append(defs);
 
-      if (!visibleNodes.length) {
+      if (!matchingNodes.length) {
         const message = scopedNodes.length
           ? 'No work matches the current filters. Use Show all to restore the graph.'
           : 'This repository has no work items yet.';
@@ -2006,9 +2054,9 @@
         const target = positions.get(edge.target);
         if (!source || !target) return;
         const startX = source.x + NODE_W;
-        const startY = source.y + NODE_H / 2;
+        const startY = source.y + (heights.get(edge.source) || NODE_H) / 2;
         const endX = target.x;
-        const endY = target.y + NODE_H / 2;
+        const endY = target.y + (heights.get(edge.target) || NODE_H) / 2;
         svg.append(svgElement('path', {
           class: `edge ${edge.kind}`,
           d: routedEdgePath(startX, startY, laneByEdge.get(edge), endX, endY),
@@ -2021,6 +2069,8 @@
 
       visibleNodes.forEach(node => {
         const position = positions.get(node.id);
+        const isFilterContext = contextIds.has(node.id);
+        const nodeHeight = heights.get(node.id) || NODE_H;
         const changeKind = changeHighlights.get(node.id);
         const progressText = node.epicProgress
           ? ` · ${node.epicProgress.completed}/${node.epicProgress.total}`
@@ -2031,9 +2081,10 @@
         const changeLabel = changeKind
           ? `, ${changeKind === 'completed' ? 'newly completed' : `${changeKind} since last refresh`}`
           : '';
-        const baseLabel = `${node.title}, ${node.state}${progressLabel}${changeLabel}`;
+        const contextLabel = isFilterContext ? ', shown as intermediary filter context' : '';
+        const baseLabel = `${node.title}, ${node.state}${progressLabel}${changeLabel}${contextLabel}`;
         const group = svgElement('g', {
-          class: `node ${node.state} ${node.type === 'epic' ? 'epic' : ''} ${changeKind ? `change-${changeKind}` : ''}`,
+          class: `node ${node.state} ${node.type === 'epic' ? 'epic' : ''} ${isFilterContext ? 'filter-context' : ''} ${changeKind ? `change-${changeKind}` : ''}`,
           transform: `translate(${position.x} ${position.y})`,
           tabindex: '0',
           role: 'button',
@@ -2042,25 +2093,30 @@
           'data-base-label': baseLabel,
         });
         group.dataset.id = node.id;
-        group.append(svgElement('rect', { width: NODE_W, height: NODE_H, rx: 9 }));
-        group.append(svgElement('line', { class: 'accent', x1: 3, y1: 10, x2: 3, y2: NODE_H - 10 }));
+        group.append(svgElement('rect', { width: NODE_W, height: nodeHeight, rx: 9 }));
+        group.append(svgElement('line', { class: 'accent', x1: 3, y1: 9, x2: 3, y2: nodeHeight - 9 }));
 
-        const meta = svgElement('text', { class: 'node-meta', x: 15, y: 20 });
-        meta.textContent = `${node.type} · ${node.state.replace('-', ' ')}${progressText}`;
+        const meta = svgElement('text', { class: 'node-meta', x: 15, y: isFilterContext ? 15 : 20 });
+        meta.textContent = isFilterContext
+          ? `FILTER CONTEXT · ${node.id}`
+          : `${node.type} · ${node.state.replace('-', ' ')}${progressText}`;
         group.append(meta);
 
-        const title = svgElement('text', { class: 'node-title', x: 15, y: 43 });
-        wrapTitle(node.title).forEach((line, index) => {
+        const title = svgElement('text', { class: 'node-title', x: 15, y: isFilterContext ? 34 : 43 });
+        const titleLines = isFilterContext
+          ? [node.title.length > 34 ? `${node.title.slice(0, 33).trim()}…` : node.title]
+          : wrapTitle(node.title);
+        titleLines.forEach((line, index) => {
           const tspan = svgElement('tspan', { x: 15, dy: index === 0 ? 0 : 17 });
           tspan.textContent = line;
           title.append(tspan);
         });
         group.append(title);
-        if (changeKind) {
+        if (changeKind && !isFilterContext) {
           const cue = svgElement('text', {
             class: `change-label ${changeKind}`,
             x: NODE_W - 12,
-            y: NODE_H - 10,
+            y: nodeHeight - 10,
             'text-anchor': 'end',
           });
           cue.textContent = changeKind === 'completed' ? 'done' : changeKind;
@@ -2093,7 +2149,7 @@
         });
         svg.append(group);
 
-        if (node.type === 'epic' && node.id !== epicScopeId) {
+        if (node.type === 'epic' && node.id !== epicScopeId && !isFilterContext) {
           const openSubmap = event => {
             event.preventDefault();
             event.stopPropagation();
@@ -2123,10 +2179,11 @@
 
       el('repository-select').value = data.path;
       el('repository-select').title = data.path;
-      const issueCount = visibleNodes.length === scopedNodes.length
+      const issueCount = matchingNodes.length === scopedNodes.length
         ? `${scopedNodes.length} issues`
-        : `${visibleNodes.length} of ${scopedNodes.length} issues`;
-      el('counts').textContent = `${issueCount} · ${visibleEdges.length} relationships`;
+        : `${matchingNodes.length} of ${scopedNodes.length} issues`;
+      const contextCount = contextIds.size ? ` · ${contextIds.size} path context` : '';
+      el('counts').textContent = `${issueCount}${contextCount} · ${visibleEdges.length} relationships`;
       if (selectedId && visibleIds.has(selectedId) && editSession?.issueId === selectedId) applyRelationshipContext();
       else if (selectedId && visibleIds.has(selectedId)) selectNode(selectedId);
       else if (selectedId) clearDetails();
