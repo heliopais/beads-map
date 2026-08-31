@@ -62,6 +62,55 @@ class ServerTests(unittest.TestCase):
 
 
 class GraphNormalizationTests(unittest.TestCase):
+    def test_work_definition_fields_and_comments_are_normalized_safely(self) -> None:
+        issues = [
+            {
+                "id": "defined",
+                "title": "Defined work",
+                "status": "open",
+                "description": "Why this exists",
+                "acceptance_criteria": "It works",
+                "design": "Keep it small",
+                "notes": "Implementation note",
+                "comments": [
+                    {
+                        "author": "Alex",
+                        "text": "Useful context",
+                        "created_at": "2026-08-31T10:00:00Z",
+                    },
+                    {"text": ""},
+                    "unknown comment shape",
+                ],
+            },
+            {
+                "id": "unknown-shapes",
+                "title": "Unknown shapes",
+                "status": "open",
+                "acceptance_criteria": {"unexpected": True},
+                "comments": {"unexpected": True},
+            },
+        ]
+
+        graph = beads_map.normalize_graph(ROOT, issues)
+        nodes = {node["id"]: node for node in graph["nodes"]}
+
+        self.assertEqual(nodes["defined"]["description"], "Why this exists")
+        self.assertEqual(nodes["defined"]["acceptanceCriteria"], "It works")
+        self.assertEqual(nodes["defined"]["design"], "Keep it small")
+        self.assertEqual(nodes["defined"]["notes"], "Implementation note")
+        self.assertEqual(
+            nodes["defined"]["comments"],
+            [
+                {
+                    "author": "Alex",
+                    "text": "Useful context",
+                    "createdAt": "2026-08-31T10:00:00Z",
+                }
+            ],
+        )
+        self.assertEqual(nodes["unknown-shapes"]["acceptanceCriteria"], "")
+        self.assertEqual(nodes["unknown-shapes"]["comments"], [])
+
     def test_nonblocking_relationships_render_without_blocking_work(self) -> None:
         issues = [
             {"id": "origin", "title": "Origin", "status": "closed"},

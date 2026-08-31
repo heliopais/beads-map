@@ -48,7 +48,9 @@ downstream relationships and Up/Down to cycle multiple choices; the opposite
 horizontal arrow returns to the starting node. Select it again or press Escape
 to clear. The details panel groups available metadata and dates, exposes
 clickable prerequisite, dependent, hierarchy, and follow-on relationships, and
-can copy the selected bead ID. Search finds work by ID, title, description,
+shows description, acceptance criteria, design, notes, and timestamped comments
+when Beads exports them. Empty or unknown fields are omitted safely. It can also
+copy the selected bead ID. Search finds work by ID, title, description,
 label, or assignee without filtering or relaying out the graph; Enter and
 Shift-Enter cycle through matches. The status chips show or hide Completed, In
 progress, Ready, Blocked, and Deferred work; the adjacent type chips and

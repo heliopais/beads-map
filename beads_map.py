@@ -26,7 +26,7 @@ except ImportError:  # pragma: no cover - Windows is not currently supported.
     fcntl = None
 
 
-__version__ = "0.2.4"
+__version__ = "0.2.5"
 BLOCKING_DEPENDENCIES = {"blocks", "conditional-blocks", "waits-for"}
 DISPLAYED_DEPENDENCIES = BLOCKING_DEPENDENCIES | {"discovered-from", "parent-child"}
 VIEW_STATES = {"completed", "in-progress", "ready", "blocked", "deferred"}
@@ -499,6 +499,9 @@ def update_issue_metadata(
 
 
 def normalize_graph(repository: Path, issues: list[dict]) -> dict:
+    def optional_text(value: object) -> str:
+        return value if isinstance(value, str) else ""
+
     by_id = {issue["id"]: issue for issue in issues if issue.get("id")}
     edges: list[dict] = []
 
@@ -554,10 +557,30 @@ def normalize_graph(repository: Path, issues: list[dict]) -> dict:
             state = "ready"
 
         issue_type = str(issue.get("issue_type") or "work item")
+        raw_comments = issue.get("comments")
+        comments = []
+        if isinstance(raw_comments, list):
+            for comment in raw_comments:
+                if not isinstance(comment, dict):
+                    continue
+                text = optional_text(comment.get("text"))
+                if not text:
+                    continue
+                comments.append(
+                    {
+                        "author": optional_text(comment.get("author")),
+                        "text": text,
+                        "createdAt": optional_text(comment.get("created_at")),
+                    }
+                )
         node = {
             "id": issue_id,
             "title": issue.get("title") or issue_id,
-            "description": issue.get("description") or "",
+            "description": optional_text(issue.get("description")),
+            "acceptanceCriteria": optional_text(issue.get("acceptance_criteria")),
+            "design": optional_text(issue.get("design")),
+            "notes": optional_text(issue.get("notes")),
+            "comments": comments,
             "type": issue_type,
             "rawStatus": raw_status,
             "state": state,

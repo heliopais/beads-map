@@ -403,6 +403,10 @@
     dt { color: var(--muted); font-size: 11px; }
     dd { margin: 2px 0 0; overflow-wrap: anywhere; }
     .description { margin-top: 16px; white-space: pre-wrap; color: var(--muted); font-size: 12px; }
+    .comment-list { display: grid; gap: 8px; }
+    .comment { padding: 9px; background: var(--surface-2); border: 1px solid var(--line); border-radius: 7px; }
+    .comment-meta { margin-bottom: 5px; color: var(--muted); font-size: 10px; }
+    .comment-text { white-space: pre-wrap; font-size: 12px; }
     .related-list { display: grid; gap: 5px; }
     .related-item {
       display: grid;
@@ -601,6 +605,14 @@
           </dl>
           <h3 id="detail-description-heading" hidden>Description</h3>
           <div class="description" id="detail-description" hidden></div>
+          <h3 id="detail-acceptance-heading" hidden>Acceptance criteria</h3>
+          <div class="description" id="detail-acceptance" hidden></div>
+          <h3 id="detail-design-heading" hidden>Design</h3>
+          <div class="description" id="detail-design" hidden></div>
+          <h3 id="detail-notes-heading" hidden>Notes</h3>
+          <div class="description" id="detail-notes" hidden></div>
+          <h3 id="detail-comments-heading" hidden>Comments</h3>
+          <div class="comment-list" id="detail-comments" hidden></div>
         </div>
         <form class="detail-edit-form" id="detail-edit-form" hidden novalidate>
           <label class="detail-field">Title
@@ -2379,6 +2391,41 @@
       return result;
     }
 
+    function renderDetailText(field, value) {
+      const text = typeof value === 'string' ? value : '';
+      el(`detail-${field}-heading`).hidden = !text;
+      el(`detail-${field}`).hidden = !text;
+      el(`detail-${field}`).textContent = text;
+    }
+
+    function renderComments(comments) {
+      const container = el('detail-comments');
+      container.replaceChildren();
+      const available = Array.isArray(comments)
+        ? comments.filter(comment => comment && typeof comment.text === 'string' && comment.text)
+        : [];
+      available.forEach(comment => {
+        const article = document.createElement('article');
+        article.className = 'comment';
+        const author = typeof comment.author === 'string' ? comment.author : '';
+        const created = typeof comment.createdAt === 'string' ? formatTimestamp(comment.createdAt) : '';
+        const metaText = [author, created].filter(Boolean).join(' · ');
+        if (metaText) {
+          const meta = document.createElement('div');
+          meta.className = 'comment-meta';
+          meta.textContent = metaText;
+          article.append(meta);
+        }
+        const text = document.createElement('div');
+        text.className = 'comment-text';
+        text.textContent = comment.text;
+        article.append(text);
+        container.append(article);
+      });
+      el('detail-comments-heading').hidden = !available.length;
+      container.hidden = !available.length;
+    }
+
     function selectNode(id, { preserveRelationshipNavigation = false } = {}) {
       const node = graphData.nodes.find(candidate => candidate.id === id);
       if (!node) return false;
@@ -2421,9 +2468,11 @@
       ].some(Boolean);
       el('detail-relationships-heading').hidden = !hasRelationships;
       el('detail-relationships').hidden = !hasRelationships;
-      el('detail-description-heading').hidden = !node.description;
-      el('detail-description').hidden = !node.description;
-      el('detail-description').textContent = node.description;
+      renderDetailText('description', node.description);
+      renderDetailText('acceptance', node.acceptanceCriteria);
+      renderDetailText('design', node.design);
+      renderDetailText('notes', node.notes);
+      renderComments(node.comments);
       applyRelationshipContext();
       return true;
     }
