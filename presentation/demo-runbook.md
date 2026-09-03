@@ -87,17 +87,17 @@ Then return directly to slide 7.
 
 ## 4. Fallback path
 
-If the local server or browser misbehaves, stay in the deck. Slide 6 contains the prepared presentation-task view, and slide 7 contains the completed release-hardening subgraph. Say: “The live UI has volunteered to demonstrate why durable state matters. The screenshots come from this repository today; the CLI state we just inspected is the same data.”
+If the local server or browser misbehaves, stay in the deck. Slide 7 contains the prepared presentation-task view, and slide 8 contains the completed release-hardening subgraph. Say: “The live UI has volunteered to demonstrate why durable state matters. The screenshots come from this repository today; the CLI state we just inspected is the same data.”
 
-If the terminal is the problem, skip to slide 6 and narrate the four commands shown on slide 5. Do not spend presentation time debugging projectors, ports, fonts, or browser zoom.
+If the terminal is the problem, stay on slide 6 and narrate the four commands shown there, then continue to slide 7. Do not spend presentation time debugging projectors, ports, fonts, or browser zoom.
 
 ## 5. Rehearsal checks
 
 - Keep the complete talk between 13 and 14 minutes so questions fit inside the 15-minute slot.
 - Keep the live demo below three minutes.
-- Verify slide 7's “49 completed beads” figure shortly before presenting; update the wording if the repository history changes.
+- Verify slide 8's “49 completed beads” figure shortly before presenting; update the wording if the repository history changes.
 - Test terminal font size, browser zoom, and the local port on the presentation machine.
-- Keep [When the plan outlives the session - v2-preview.png](/Users/paishe01/repos/mngmt/beads-map/presentation/When%20the%20plan%20outlives%20the%20session%20-%20v2-preview.png) available as a fast visual fallback.
+- Keep [When the plan outlives the session - v3-preview.png](/Users/paishe01/repos/mngmt/beads-map/presentation/When%20the%20plan%20outlives%20the%20session%20-%20v3-preview.png) available as a fast visual fallback.
 
 ## 6. Intended audience takeaway
 
