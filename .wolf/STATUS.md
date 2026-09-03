@@ -47,7 +47,7 @@
 - Added Beads Map 0.2.6 recoverable unavailable repository entries: missing or invalid catalog paths remain visible with Retry and Locate controls, failed switches preserve the current graph, and locating a replacement migrates saved view state.
 - Added Beads Map 0.2.7 browser scale verification and an explicit large-graph gate: normal rendering supports up to 1,000 displayed issues/3,000 relationships, larger scopes recommend filtering and offer an explicit best-effort override.
 - Completed and closed the seven-child `beads-map-6vs` release-hardening epic.
-- Added the first GitHub Actions CI gate: pull requests and pushes to `main` run the Python 3.11 unit suite, build distributions, and smoke-test the installed wheel/CLI with minimal permissions, cancellation of superseded work, and immutable action pins.
+- Added the first GitHub Actions CI gate: pull requests and pushes to `main` run the Python 3.11 unit suite, build distributions, and smoke-test the installed wheel/CLI with minimal permissions, cancellation of superseded work, and immutable action pins; the first hosted run passed all steps in 21 seconds.
 - Created and visually verified the StepStone-branded eight-slide AI Engineering Fridays deck `presentation/When the plan outlives the session - v1.pptx`, including speaker notes, authentic Beads Map screenshots, and a three-minute deterministic demo runbook.
 - Revised the talk opening in `presentation/When the plan outlives the session - v2.pptx` around Steve Yegge's original Beads launch essay: 605 decaying Markdown plans, his issue-graph terminal screenshot, visible attribution, and an explicit historical-architecture caveat in the speaker notes.
 - Reworked the presentation opening in `presentation/When the plan outlives the session - v3.pptx`: the familiar Claude Code loop now opens the talk, Steve Yegge's complex-work example follows, and the exact “The Stages of AI Adoption” slide from the prior sprint review bridges into the session-boundary pressure points. The nine-slide deck, speaker notes, preview, and demo slide references are verified.
@@ -56,7 +56,7 @@
 
 ## 🚀 Next phase
 
-**Goal:** Confirm the first GitHub-hosted CI run is green, then choose the next product increment from new user feedback rather than extending the closed scope pre-emptively.
+**Goal:** CI is green; choose the next product increment from new user feedback rather than extending the closed scope pre-emptively.
 
 **Presentation:** Rehearse the 15-minute Beads talk, tighten the talk track from live timing, verify the “49 completed beads” evidence immediately before delivery, and choose the 2026-09-04 or 2026-09-18 slot.
 
