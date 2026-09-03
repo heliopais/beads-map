@@ -53,6 +53,7 @@
 - Created and visually verified the StepStone-branded eight-slide AI Engineering Fridays deck `presentation/When the plan outlives the session - v1.pptx`, including speaker notes, authentic Beads Map screenshots, and a three-minute deterministic demo runbook.
 - Revised the talk opening in `presentation/When the plan outlives the session - v2.pptx` around Steve Yegge's original Beads launch essay: 605 decaying Markdown plans, his issue-graph terminal screenshot, visible attribution, and an explicit historical-architecture caveat in the speaker notes.
 - Reworked the presentation opening in `presentation/When the plan outlives the session - v3.pptx`: the familiar Claude Code loop now opens the talk, Steve Yegge's complex-work example follows, and the exact “The Stages of AI Adoption” slide from the prior sprint review bridges into the session-boundary pressure points. The nine-slide deck, speaker notes, preview, and demo slide references are verified.
+- Added the evidence-backed team-repository answer in `presentation/When the plan outlives the session - v4.pptx`: slide 9 presents Beads collaboration as a qualified yes with a Git-like local-Dolt/pull/push model, explicit synchronization caveats, and official-source notes; the closing slide is now slide 10 and the deck passed visual, overflow, and template-fidelity checks.
 
 ---
 
