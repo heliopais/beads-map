@@ -96,9 +96,10 @@ If the terminal is the problem, stay on slide 6 and narrate the four commands sh
 - Keep the complete talk between 13 and 14 minutes so questions fit inside the 15-minute slot.
 - Keep the live demo below three minutes.
 - Verify slide 8's “49 completed beads” figure shortly before presenting; update the wording if the repository history changes.
+- On slides 9–10, say “JSONL compatibility workflow,” not “native Beads sync”; keep the local-Dolt-versus-Git-export distinction explicit.
 - Test terminal font size, browser zoom, and the local port on the presentation machine.
-- Keep [When the plan outlives the session - v4.pptx](</Users/paishe01/repos/mngmt/beads-map/presentation/When the plan outlives the session - v4.pptx>) available as the complete slide-based fallback.
+- Keep [When the plan outlives the session - v5.pptx](</Users/paishe01/repos/mngmt/beads-map/presentation/When the plan outlives the session - v5.pptx>) available as the complete slide-based fallback.
 
 ## 6. Intended audience takeaway
 
-The audience should leave with one precise idea: use Beads when the work—not merely the current chat—needs continuity across sessions, discoveries, dependencies, or hand-offs. Markdown planning remains useful for bounded work; Beads becomes valuable when the plan starts behaving like a stateful task system.
+The audience should leave with one precise idea: use Beads when the work—not merely the current chat—needs continuity across sessions, discoveries, dependencies, or hand-offs. Markdown planning remains useful for bounded work; Beads becomes valuable when the plan starts behaving like a stateful task system. At StepStone, asynchronous team hand-offs travel as exported JSONL with the code while each clone keeps its own local Dolt database.

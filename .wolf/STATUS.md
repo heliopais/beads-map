@@ -54,6 +54,7 @@
 - Revised the talk opening in `presentation/When the plan outlives the session - v2.pptx` around Steve Yegge's original Beads launch essay: 605 decaying Markdown plans, his issue-graph terminal screenshot, visible attribution, and an explicit historical-architecture caveat in the speaker notes.
 - Reworked the presentation opening in `presentation/When the plan outlives the session - v3.pptx`: the familiar Claude Code loop now opens the talk, Steve Yegge's complex-work example follows, and the exact “The Stages of AI Adoption” slide from the prior sprint review bridges into the session-boundary pressure points. The nine-slide deck, speaker notes, preview, and demo slide references are verified.
 - Added the evidence-backed team-repository answer in `presentation/When the plan outlives the session - v4.pptx`: slide 9 presents Beads collaboration as a qualified yes with a Git-like local-Dolt/pull/push model, explicit synchronization caveats, and official-source notes; the closing slide is now slide 10 and the deck passed visual, overflow, and template-fidelity checks.
+- Corrected the collaboration section for StepStone's Bitbucket/Stash environment in `presentation/When the plan outlives the session - v5.pptx`: slide 9 now shows local Dolt → export → Git-tracked `.beads/issues.jsonl` → import → local Dolt, slide 10 demonstrates a pull-request hand-off in practice, and the closing is slide 11. The deck and notes explicitly call this a JSONL compatibility convention rather than native Beads remote sync and pass full presentation QA.
 
 ---
 
