@@ -719,6 +719,22 @@ class PackagingSmokeTests(unittest.TestCase):
     def test_web_asset_exists(self) -> None:
         self.assertTrue((beads_map.WEB_ROOT / "index.html").is_file())
 
+    def test_web_asset_has_accessible_empty_first_run_guidance(self) -> None:
+        html = (beads_map.WEB_ROOT / "index.html").read_text(encoding="utf-8")
+
+        self.assertIn('id="first-run"', html)
+        self.assertIn('id="first-run-title"', html)
+        self.assertIn('Choose a Beads repository', html)
+        self.assertIn('Explore its dependency graph', html)
+        self.assertIn('Edit only approved metadata, if needed', html)
+        self.assertIn('id="first-run-add"', html)
+        self.assertIn("function showFirstRun()", html)
+        self.assertIn("el('first-run-add').addEventListener('click', addRepository);", html)
+        self.assertIn(
+            "showError(error, Boolean(graphData) || catalogRepositories.size === 0);",
+            html,
+        )
+
     def test_source_launcher_help(self) -> None:
         result = subprocess.run(
             [sys.executable, str(ROOT / "beads_map.py"), "--help"],

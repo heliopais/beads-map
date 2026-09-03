@@ -6,7 +6,7 @@ Beads Map is a local visual workspace for a single [Beads](https://github.com/ga
 
 ![Beads Map showing a repository dependency graph, filters, and the selected task details panel](docs/assets/beads-map-overview.jpg)
 
-*Beads Map 0.2.7 running against its own Beads repository. The app is local: the graph and selected task details stay on your computer.*
+*Beads Map 0.2.8 running against its own Beads repository. The app is local: the graph and selected task details stay on your computer.*
 
 ## 1. One-minute quickstart
 

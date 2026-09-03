@@ -80,6 +80,13 @@
     }
     .header-button:hover { border-color: var(--focus); }
     .header-button:disabled { cursor: default; opacity: .45; }
+    .primary-action {
+      color: light-dark(#fff, #101317);
+      background: var(--focus);
+      border-color: var(--focus);
+      font-weight: 650;
+    }
+    .primary-action:hover { border-color: var(--focus); filter: brightness(1.06); }
     .summary {
       display: flex;
       flex-wrap: wrap;
@@ -248,6 +255,51 @@
     .scale-gate[hidden] { display: none; }
     .scale-gate strong { color: var(--text); font-size: 17px; }
     .scale-gate .header-button { justify-self: center; }
+    .first-run {
+      height: 100%;
+      display: grid;
+      place-items: center;
+      padding: clamp(24px, 6vw, 72px);
+      border: 1px solid var(--line);
+      border-radius: 11px;
+      background: var(--surface);
+    }
+    .first-run[hidden] { display: none; }
+    .first-run-card { width: min(100%, 590px); }
+    .first-run h2 { margin: 0 0 7px; font-size: clamp(21px, 3vw, 28px); line-height: 1.15; }
+    .first-run-intro { max-width: 520px; margin: 0; color: var(--muted); }
+    .first-run-steps {
+      display: grid;
+      gap: 10px;
+      margin: 24px 0;
+      padding: 0;
+      list-style: none;
+      counter-reset: first-run-step;
+    }
+    .first-run-steps li {
+      position: relative;
+      min-height: 44px;
+      padding: 5px 0 5px 44px;
+      counter-increment: first-run-step;
+    }
+    .first-run-steps li::before {
+      content: counter(first-run-step);
+      position: absolute;
+      left: 0;
+      top: 3px;
+      width: 28px;
+      height: 28px;
+      display: grid;
+      place-items: center;
+      color: light-dark(#fff, #101317);
+      background: var(--focus);
+      border-radius: 50%;
+      font-size: 12px;
+      font-weight: 750;
+    }
+    .first-run-steps strong, .first-run-steps span { display: block; }
+    .first-run-steps span { color: var(--muted); font-size: 12px; }
+    .first-run-help { margin: 15px 0 0; color: var(--muted); font-size: 12px; }
     .scroller {
       height: 100%;
       overflow: auto;
@@ -498,6 +550,8 @@
       .search-controls { width: 100%; margin-left: 0; }
       .search-input { flex: 1; width: auto; }
       .minimap { display: none; }
+      .first-run { padding: 24px 18px; }
+      .first-run-steps { margin: 20px 0; }
     }
   </style>
 </head>
@@ -510,7 +564,7 @@
         <select class="repository-select" id="repository-select" aria-label="Repository">
           <option>Loading repositories…</option>
         </select>
-        <button class="header-button" id="repository-add" type="button">Add…</button>
+        <button class="header-button primary-action" id="repository-add" type="button">Add repository…</button>
         <button class="header-button" id="repository-remove" type="button">Remove</button>
         <span class="repository-recovery" id="repository-recovery" hidden>
           <span class="recovery-message" id="repository-recovery-message"></span>
@@ -578,6 +632,19 @@
         </div>
       </div>
       <div class="canvas-frame">
+        <section class="first-run" id="first-run" aria-labelledby="first-run-title" hidden>
+          <div class="first-run-card">
+            <h2 id="first-run-title">Map your Beads work</h2>
+            <p class="first-run-intro">Start with one local repository. Beads Map keeps each repository’s dependency graph separate.</p>
+            <ol class="first-run-steps">
+              <li><strong>Choose a Beads repository</strong><span>Use the folder picker to select a repository that has been initialized with Beads.</span></li>
+              <li><strong>Explore its dependency graph</strong><span>See what is complete, ready, blocked, and how work connects.</span></li>
+              <li><strong>Edit only approved metadata, if needed</strong><span>Graph and workflow stay read-only; editing is explicit and limited to title, description, priority, assignee, and labels.</span></li>
+            </ol>
+            <button class="header-button primary-action" id="first-run-add" type="button" aria-describedby="first-run-help">Choose a Beads repository…</button>
+            <p class="first-run-help" id="first-run-help">You can add another repository later from the header.</p>
+          </div>
+        </section>
         <div class="scale-gate" id="scale-gate" role="status" hidden>
           <strong id="scale-gate-title"></strong>
           <span id="scale-gate-message"></span>
@@ -797,12 +864,30 @@
       const select = el('repository-select');
       select.disabled = busy || !select.value;
       el('repository-add').disabled = busy;
+      el('first-run-add').disabled = busy;
       el('repository-remove').disabled = busy || !select.value;
       el('repository-retry').disabled = busy;
       el('repository-locate').disabled = busy;
       el('refresh').disabled = busy || !select.value;
       el('relayout-graph').disabled = busy || !graphData;
       el('export-graph').disabled = busy || !graphData;
+    }
+
+    function showFirstRun() {
+      el('first-run').hidden = false;
+      el('scale-gate').hidden = true;
+      el('graph-scroller').hidden = true;
+      el('minimap').hidden = true;
+      el('workspace').hidden = false;
+      el('counts').textContent = 'Choose a repository to begin';
+      el('freshness').textContent = '';
+      el('change-summary').hidden = true;
+      el('graph-heading').textContent = 'Get started';
+    }
+
+    function hideFirstRun() {
+      el('first-run').hidden = true;
+      el('graph-scroller').hidden = false;
     }
 
     function showError(error, keepGraph = false) {
@@ -2084,6 +2169,7 @@
     }
 
     function renderGraph(data) {
+      hideFirstRun();
       const repositoryChanged = currentRepository !== data.path;
       const scroller = el('graph-scroller');
       const previousViewport = {
@@ -2676,7 +2762,7 @@
         el('workspace').hidden = false;
         applyGraph(payload.graph);
       } catch (error) {
-        showError(error, Boolean(graphData));
+        showError(error, Boolean(graphData) || catalogRepositories.size === 0);
       } finally {
         setBusy(false);
       }
@@ -2720,8 +2806,7 @@
         if (catalog.selected) await loadGraph();
         else {
           el('graph').replaceChildren();
-          el('workspace').hidden = true;
-          el('counts').textContent = 'Add a repository to load a graph';
+          showFirstRun();
         }
       } catch (error) {
         showError(error, Boolean(graphData));
@@ -2737,6 +2822,11 @@
       }
       try {
         renderCatalog(await requestJSON('/api/repositories'));
+        if (!el('repository-select').value) {
+          showFirstRun();
+          setBusy(false);
+          return;
+        }
         if (recoveryPath) {
           showError(new Error(catalogRepositories.get(recoveryPath)?.error || 'Repository is unavailable.'));
           setBusy(false);
@@ -2752,6 +2842,7 @@
     el('refresh').addEventListener('click', loadGraph);
     el('repository-select').addEventListener('change', event => chooseRepository(event.target.value));
     el('repository-add').addEventListener('click', addRepository);
+    el('first-run-add').addEventListener('click', addRepository);
     el('repository-remove').addEventListener('click', removeRepository);
     el('repository-retry').addEventListener('click', retryRepository);
     el('repository-locate').addEventListener('click', locateRepository);
