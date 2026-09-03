@@ -97,7 +97,7 @@ If the terminal is the problem, skip to slide 6 and narrate the four commands sh
 - Keep the live demo below three minutes.
 - Verify slide 7's “49 completed beads” figure shortly before presenting; update the wording if the repository history changes.
 - Test terminal font size, browser zoom, and the local port on the presentation machine.
-- Keep [When the plan outlives the session - v1-preview.png](/Users/paishe01/repos/mngmt/beads-map/presentation/When%20the%20plan%20outlives%20the%20session%20-%20v1-preview.png) available as a fast visual fallback.
+- Keep [When the plan outlives the session - v2-preview.png](/Users/paishe01/repos/mngmt/beads-map/presentation/When%20the%20plan%20outlives%20the%20session%20-%20v2-preview.png) available as a fast visual fallback.
 
 ## 6. Intended audience takeaway
 

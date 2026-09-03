@@ -2,7 +2,7 @@
 
 > Single source of truth for resuming work. Read this FIRST when starting a session.
 > Update this file at the end of every work phase so the next `/clear` resumes in 1 read.
-> Last updated: 2026-09-02
+> Last updated: 2026-09-03
 
 ---
 
@@ -48,6 +48,7 @@
 - Added Beads Map 0.2.7 browser scale verification and an explicit large-graph gate: normal rendering supports up to 1,000 displayed issues/3,000 relationships, larger scopes recommend filtering and offer an explicit best-effort override.
 - Completed and closed the seven-child `beads-map-6vs` release-hardening epic.
 - Created and visually verified the StepStone-branded eight-slide AI Engineering Fridays deck `presentation/When the plan outlives the session - v1.pptx`, including speaker notes, authentic Beads Map screenshots, and a three-minute deterministic demo runbook.
+- Revised the talk opening in `presentation/When the plan outlives the session - v2.pptx` around Steve Yegge's original Beads launch essay: 605 decaying Markdown plans, his issue-graph terminal screenshot, visible attribution, and an explicit historical-architecture caveat in the speaker notes.
 
 ---
 
