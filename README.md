@@ -1,109 +1,134 @@
 # Beads Map
 
-A tiny dependency graph for local Beads repositories with explicit editing for
-five metadata fields. Each graph stays repository-scoped; use the header
-selector to switch between them.
+Beads Map is a local visual workspace for a single [Beads](https://github.com/gastownhall/beads) repository at a time. It makes the task dependency DAG, epics, status, and the small set of approved metadata edits easier to explore without replacing Beads as the source of truth.
 
-Requires Python 3.11 or newer, `uv`, and `bd >=1.1,<2` on `PATH`.
+**Invited beta.** This is ready for macOS developers who already use Beads and are comfortable sharing focused feedback. It is macOS-first; Linux is a best-effort path, and Windows is not supported yet.
 
-## Install
+![Beads Map showing a repository dependency graph, filters, and the selected task details panel](docs/assets/beads-map-overview.jpg)
+
+*Beads Map 0.2.7 running against its own Beads repository. The app is local: the graph and selected task details stay on your computer.*
+
+## 1. One-minute quickstart
+
+1. Install [uv](https://docs.astral.sh/uv/getting-started/installation/) and the [Beads CLI](https://beads.gascity.com/getting-started/installation). On macOS, Homebrew is the simplest route:
+
+   ```bash
+   brew install uv beads
+   bd version
+   ```
+
+2. Install the current invited-beta development build. This repository is private, so this command requires GitHub access to `heliopais/beads-map`; it follows the moving `main` branch. A fixed tagged install will replace it for the first beta release.
+
+   ```bash
+   uv tool install git+https://github.com/heliopais/beads-map.git
+   ```
+
+3. Start from an existing Beads repository. The browser opens automatically.
+
+   ```bash
+   beads-map /path/to/your/repository
+   ```
+
+   The repository needs an initialized `.beads/` directory. If you are starting a new project, initialize it first:
+
+   ```bash
+   cd /path/to/your/repository
+   bd init
+   ```
+
+## 2. Requirements and support boundary
+
+- macOS is the supported beta platform. Linux may work when Python 3.11+, `uv`, and `bd` are available on `PATH`, but it has not received the same hands-on verification. Windows is unsupported for this beta.
+- Python 3.11 or newer, `uv`, and `bd >=1.1,<2` are required. Beads Map checks the installed `bd` version before it starts.
+- Each view represents exactly one repository; switching repositories switches to another independent DAG. Beads Map does not combine issue data or relationships across repositories.
+- For beta feedback, open an issue in the [project tracker](https://github.com/heliopais/beads-map/issues) with `beads-map --version`, `bd version`, your operating system, and the smallest reproducible command or screenshot. Do not include private issue content unless you intend to share it.
+
+## 3. Starting, switching, and stopping
+
+Pass one or more repository paths on first launch:
 
 ```bash
-uv tool install git+https://github.com/heliopais/beads-map.git
 beads-map /path/to/repository [/path/to/another/repository]
 ```
 
-The app opens on loopback port 8765, or another free port when 8765 is already
-in use. Use `--no-browser` to launch without opening a browser, or `--port 9000`
-to require a specific port. Repositories passed on the command line are
-remembered, along with the last selection. Later, `beads-map` reopens that
-catalog. You can also add and remove repositories from the header; on macOS,
-Add opens the native folder chooser, so no path entry is required.
-Missing, moved, unreadable, and invalid catalog entries remain visible with a
-warning. Select one to Retry it, Locate its replacement with the folder picker,
-or Remove only that catalog entry; failed recovery keeps the current graph.
+Those repositories and their view preferences are remembered. Later, `beads-map` reopens the catalog; use the header selector to switch. **Add** opens the native macOS folder chooser, so a full path is not required. Missing, moved, unreadable, and invalid entries remain visible with a warning: select one to **Retry** it, **Locate** its replacement, or **Remove** only that catalog entry. A failed recovery keeps the current graph visible.
 
-Upgrade or uninstall explicitly:
+The server listens only on your loopback interface. It prefers port 8765 and silently selects another free local port if that one is busy. Use `--no-browser` to avoid opening a browser or `--port 9000` to require one specific port:
+
+```bash
+beads-map --no-browser /path/to/repository
+beads-map --port 9000 /path/to/repository
+```
+
+Press `Ctrl-C` in the terminal to stop it. Upgrade or uninstall the development install explicitly:
 
 ```bash
 uv tool upgrade beads-map
 uv tool uninstall beads-map
 ```
 
-From a source checkout, the original launcher remains available without
-installing the package:
+From a source checkout, this launcher also works without installation:
 
 ```bash
 python3 beads_map.py /path/to/repository
 ```
 
-The app runs `bd --readonly -C <repository> export` and renders work
-relationships from left to right with crossing-aware task ordering and routed
-edge gutters. Solid edges are prerequisites, dashed edges are follow-on
-provenance, and dotted edges are parent-child hierarchy; only prerequisites
-affect Blocked state. Selecting a node shows its details, highlights direct
-upstream and downstream relationships, and fades unrelated work without moving
-the graph. The details panel can instead focus the complete prerequisite
-Blockers path, dependent outcomes, or Both; these modes follow prerequisite
-relationships transitively while leaving filters and node positions unchanged.
-With a graph node focused, use Left/Right to enter its direct upstream or
-downstream relationships and Up/Down to cycle multiple choices; the opposite
-horizontal arrow returns to the starting node. Select it again or press Escape
-to clear. The details panel groups available metadata and dates, exposes
-clickable prerequisite, dependent, hierarchy, and follow-on relationships, and
-shows description, acceptance criteria, design, notes, and timestamped comments
-when Beads exports them. Empty or unknown fields are omitted safely. It can also
-copy the selected bead ID. Search finds work by ID, title, description,
-label, or assignee without filtering or relaying out the graph; Enter and
-Shift-Enter cycle through matches. The status chips show or hide Completed, In
-progress, Ready, Blocked, and Deferred work; the adjacent type chips and
-multi-select Label and Assignee menus combine with them to narrow the graph
-further. Multiple selections within a menu are alternatives, while separate
-filter groups combine. Show all resets every filter. What’s ready? applies a
-one-click preset for Ready work across every work type. When a filter hides an
-intermediary task between two matching tasks, the graph retains it as a compact,
-dashed Filter context card so the real prerequisite path remains visible and
-inspectable. These context cards are not counted as filter matches, and Show all
-restores their normal presentation. If filters hide every item, the canvas explains that Show all restores
-the graph; an actually empty repository uses different wording. Epic nodes with
-direct human-facing children show a simple closed/total
-count; deferred children remain incomplete, and the count never changes the
-epic's own state. Double-click an epic to open a focused sub-map containing the
-epic and all of its nested child work, or use the `⤢` control shown on epic
-cards. A sub-map starts with every status and type visible; use Back to full map
-to restore the repository overview and its previous filters. Filter visibility
-is remembered per repository. Use Epics for a compact repository-wide list with
-direct-child progress; select an epic to reveal and center it, or open its
-sub-map directly. Drag empty
-canvas space to pan, or `Cmd`-drag vertically to zoom around the pointer. The
-minimap appears when the graph extends beyond the viewport; click or drag it to
-navigate the larger canvas. Export SVG downloads the currently rendered scope
-and filters with resolved styling entirely in the browser. The
-supported rendering envelope is 1,000 displayed issues and 3,000 displayed
-relationships. Above it, the canvas pauses with complete snapshot counts and a
-recommendation to narrow the existing filters; **Render best effort** explicitly
-overrides the gate for that snapshot. The repeatable browser fixture and latest
-measurements are in `docs/scale-verification.md`. The
-graph checks for Beads changes every five seconds and skips redrawing when the
-snapshot is unchanged. If a read fails, the last good graph stays visible and
-is marked stale. After a successful refresh, added, newly completed, and
-otherwise updated work is marked briefly by comparing only the two in-memory
-snapshots; no history is stored.
+## 4. Reading the map
 
-Node coordinates are cached in memory per repository and epic scope. Filters
-and metadata-only refreshes therefore preserve the user's mental map, while a
-dependency change recomputes its connected component and leaves unrelated work
-in place where space permits. **Re-layout** discards the current scope's cache
-and recomputes the full arrangement; no manual coordinates are persisted.
+The graph runs left to right. Solid edges are prerequisites, dashed edges are follow-on provenance, and dotted edges are parent-child hierarchy; only prerequisites affect a bead's Blocked state. Select a node to inspect it, highlight direct upstream and downstream relationships, and fade unrelated work without moving the map. The details panel can focus the complete prerequisite path, dependent outcomes, or both. With a selected node, Left/Right follows direct upstream/downstream relationships; Up/Down cycles multiple choices, and Escape clears the focus. The panel groups available metadata and dates, exposes clickable relationships, and safely shows exported descriptions, acceptance criteria, design, notes, and timestamped comments when present. Empty or unknown fields are omitted; **Copy ID** stays local to your browser.
 
-Use **Edit** in the selected-bead details panel to change title, description,
-priority, assignee, or labels. Save uses `bd update`, checks that the repository
-snapshot has not changed since editing began, and refreshes the graph from Beads
-afterward. Conflicts and write failures keep the draft for explicit recovery.
-Status, type, workflow actions, relationships, issue creation/deletion, and sync
-remain read-only.
+Use the status chips, type chips, Label and Assignee menus, search, and **What’s ready?** to narrow the graph. Selections inside one menu are alternatives; different filter groups combine. **Show all** resets everything. If a filter hides an intermediate prerequisite, Beads Map keeps it as a compact dashed context card so the real path remains inspectable; context cards are not filter matches and return to normal with **Show all**. A no-match filter state explains how to restore the graph, while a genuinely empty repository uses different wording. Search matches ID, title, description, label, and assignee; Enter and Shift-Enter cycle matches.
 
-The catalog stores repository paths and per-repository view preferences in the
-operating system's user configuration directory; it never stores issue data or
-edit drafts. Catalog updates are locked and atomically replaced so two running
-Beads Map sessions do not lose one another's changes.
+Epics show direct-child progress. Double-click an epic, or use the `⤢` control on its card, to open a focused nested sub-map; **Back to full map** restores the overview and its previous filters. A sub-map begins with every status and type visible, and its filter choices do not overwrite the full-map view. **Epics** provides a repository-wide epic list. Drag empty canvas space to pan; `Cmd`-drag vertically to zoom around the pointer. The minimap appears when the graph extends beyond the viewport, and **Export SVG** downloads the current scope and filters as a self-contained SVG.
+
+Beads Map supports up to 1,000 displayed issues and 3,000 displayed relationships. Above that, it pauses with exact counts and asks you to narrow the existing filters; **Render best effort** explicitly overrides that limit for the current snapshot. See [scale-verification.md](docs/scale-verification.md) for the repeatable fixture and measured baseline. Filter and metadata-only refreshes preserve the in-memory mental map. **Re-layout** discards the current scope's cached coordinates; manual coordinates are never persisted.
+
+## 5. Editing and local-data safety
+
+Normal graph reads use `bd --readonly -C <repository> export`. Beads Map does not write Dolt tables or `.beads/issues.jsonl` itself, does not sync Beads, and never creates, deletes, claims, closes, reopens, defers, or rewires issues.
+
+The explicit **Edit** action on a selected bead can change only title, description, priority, assignee, and labels. Saving validates those fields, checks that the selected repository snapshot has not changed, invokes one allowlisted `bd update` command without a shell, then reloads from Beads. If validation, Beads, or a stale-snapshot check fails, the last good graph and your unsaved draft stay available for recovery. [metadata-editing-plan.md](docs/metadata-editing-plan.md) describes the boundary in detail.
+
+The repository catalog stores paths and per-repository view preferences in your operating system's user configuration directory. It does not store issue data or edit drafts. Graph layout positions are cached only in memory. Beads Map checks for changes every five seconds; a failed read leaves the last good graph on screen and marks it stale.
+
+## 6. Troubleshooting
+
+### 6.1 `bd: command not found`
+
+Install the Beads CLI using its [official installation guide](https://beads.gascity.com/getting-started/installation), then open a new terminal and run:
+
+```bash
+bd version
+```
+
+If that still fails, `bd` is not on your `PATH`; use the Beads guide's PATH instructions for the installer you chose.
+
+### 6.2 Unsupported Beads version
+
+Beads Map requires `bd >=1.1,<2`. Check the installed version with `bd version`, then update Beads using the same installation route (for example, `brew upgrade beads`). Restart Beads Map after upgrading.
+
+### 6.3 “Not a readable Beads repository” or an unavailable catalog entry
+
+Choose the repository root—not its `.beads` folder—and ensure it contains `.beads/`. Verify the read path directly:
+
+```bash
+bd --readonly -C /path/to/repository export >/dev/null
+```
+
+For a moved repository, select its warning-marked catalog entry and choose **Locate**. If you no longer want it in the selector, choose **Remove**; this only removes the remembered path, never the repository or its Beads data.
+
+### 6.4 Port issue
+
+Without `--port`, Beads Map automatically chooses a free local port. If you supplied `--port 9000`, either free that port or choose another one:
+
+```bash
+beads-map --port 9001 /path/to/repository
+```
+
+The terminal prints the exact local URL it opened. If the browser did not open, rerun without `--no-browser` or paste that URL into your browser.
+
+## 7. Development and quality
+
+The project is currently alpha-quality software. GitHub Actions runs the Python test suite, builds the distribution, and performs an isolated wheel/CLI smoke test on pull requests and `main` pushes. It deliberately does not publish releases or deploy anything yet.
+
+The detailed product record lives in [specification.md](docs/specification.md). Beads is the project tracker; use `bd ready` in a source checkout to see available work.
