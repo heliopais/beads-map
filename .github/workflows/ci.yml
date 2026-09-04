@@ -4,6 +4,8 @@ on:
   push:
     branches:
       - main
+    tags:
+      - "v[0-9]*"
   pull_request:
     branches:
       - main
@@ -111,3 +113,101 @@ jobs:
           path: ${{ runner.temp }}/beads-map-browser-artifacts
           if-no-files-found: warn
           retention-days: 7
+
+  release-candidate:
+    name: Reproducible release candidate
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs:
+      - validate
+      - browser-confidence
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+
+    steps:
+      - name: Check out tagged source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.11"
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
+        with:
+          version: "0.12.9"
+          enable-cache: true
+
+      - name: Verify tag matches package version
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          python - "$RELEASE_TAG" <<'PY'
+          import pathlib
+          import sys
+          import tomllib
+
+          tag = sys.argv[1]
+          data = tomllib.loads(pathlib.Path("pyproject.toml").read_text(encoding="utf-8"))
+          expected = f"v{data['project']['version']}"
+          if tag != expected:
+              raise SystemExit(f"Tag {tag!r} does not match package version {expected!r}")
+          print(f"Release identity verified: {tag}")
+          PY
+          test "$(git rev-parse HEAD)" = "$(git rev-parse "$RELEASE_TAG^{commit}")"
+
+      - name: Build and compare release artifacts
+        env:
+          BUILD_CONSTRAINTS: ${{ github.workspace }}/.github/release-build-constraints.txt
+          CANDIDATE_DIR: ${{ runner.temp }}/release-candidate
+        run: |
+          set -euo pipefail
+          source_archive="$RUNNER_TEMP/tagged-source.tar"
+          source_a="$RUNNER_TEMP/source-a"
+          source_b="$RUNNER_TEMP/source-b"
+          build_a="$RUNNER_TEMP/build-a"
+          build_b="$RUNNER_TEMP/build-b"
+          mkdir -p "$source_a" "$source_b" "$build_a" "$build_b" "$CANDIDATE_DIR"
+          git archive --format=tar --output="$source_archive" HEAD
+          tar -xf "$source_archive" -C "$source_a"
+          tar -xf "$source_archive" -C "$source_b"
+          export SOURCE_DATE_EPOCH="$(git show -s --format=%ct HEAD)"
+          export PYTHONHASHSEED=0
+          export TZ=UTC
+          uv build "$source_a" --out-dir "$build_a" \
+            --build-constraints "$BUILD_CONSTRAINTS" --require-hashes
+          uv build "$source_b" --out-dir "$build_b" \
+            --build-constraints "$BUILD_CONSTRAINTS" --require-hashes
+          python .github/scripts/normalize_sdist.py \
+            "$build_a"/beads_map-*.tar.gz "$SOURCE_DATE_EPOCH"
+          python .github/scripts/normalize_sdist.py \
+            "$build_b"/beads_map-*.tar.gz "$SOURCE_DATE_EPOCH"
+          artifacts_a=("$build_a"/*)
+          artifacts_b=("$build_b"/*)
+          test "${#artifacts_a[@]}" -eq 2
+          test "${#artifacts_b[@]}" -eq 2
+          for artifact_a in "${artifacts_a[@]}"; do
+            artifact_b="$build_b/$(basename "$artifact_a")"
+            if ! cmp --silent "$artifact_a" "$artifact_b"; then
+              sha256sum "$artifact_a" "$artifact_b"
+              echo "Release build is not byte-for-byte reproducible: $(basename "$artifact_a")" >&2
+              exit 1
+            fi
+            cp -f "$artifact_a" "$CANDIDATE_DIR/"
+          done
+          cd "$CANDIDATE_DIR"
+          sha256sum beads_map-*.whl beads_map-*.tar.gz > SHA256SUMS
+          sha256sum --check SHA256SUMS
+          wheels=(beads_map-*.whl)
+          test "${#wheels[@]}" -eq 1
+          uv run --isolated --no-project --with "${wheels[0]}" beads-map --version
+
+      - name: Retain reviewed release candidate
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: release-candidate-${{ github.ref_name }}
+          path: ${{ runner.temp }}/release-candidate
+          if-no-files-found: error
+          retention-days: 30

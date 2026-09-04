@@ -65,6 +65,8 @@
 
 **Goal:** Publish the immutable external beta release tracked by `beads-map-l8m.3`; all implementation, onboarding, security, and automated-confidence prerequisites are complete.
 
+**Prepared locally:** Tag pushes now run the full Linux and macOS confidence lanes before producing a byte-reproducible wheel/sdist candidate and verified `SHA256SUMS`. Repository release immutability is enabled; review, commit, hosted verification, tag creation, and external publication remain pending.
+
 **Presentation:** Rehearse the 15-minute Beads talk, tighten the talk track from live timing, verify the “49 completed beads” evidence immediately before delivery, and choose the 2026-09-04 or 2026-09-18 slot.
 
 ### Closed decisions

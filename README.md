@@ -17,11 +17,14 @@ Beads Map is a local visual workspace for a single [Beads](https://github.com/ga
    bd version
    ```
 
-2. Install the current invited-beta development build. This repository is private, so this command requires GitHub access to `heliopais/beads-map`; it follows the moving `main` branch. A fixed tagged install will replace it for the first beta release.
+2. Install the reviewed wheel from the immutable `v0.2.10` invited-beta release:
 
    ```bash
-   uv tool install git+https://github.com/heliopais/beads-map.git
+   uv tool install "https://github.com/heliopais/beads-map/releases/download/v0.2.10/beads_map-0.2.10-py3-none-any.whl"
+   beads-map --version
    ```
+
+   A fixed-tag source install is available as a fallback: `uv tool install "git+https://github.com/heliopais/beads-map.git@v0.2.10"`.
 
 3. Start from an existing Beads repository. The browser opens automatically.
 
@@ -60,10 +63,10 @@ beads-map --no-browser /path/to/repository
 beads-map --port 9000 /path/to/repository
 ```
 
-Press `Ctrl-C` in the terminal to stop it. Upgrade or uninstall the development install explicitly:
+Press `Ctrl-C` in the terminal to stop it. Upgrades are deliberate: replace the version in the release URL only after reviewing a newer release. Reinstalling an earlier release wheel is also the rollback path; uninstalling removes the tool without touching any Beads repository or the local catalog.
 
 ```bash
-uv tool upgrade beads-map
+uv tool install --force "https://github.com/heliopais/beads-map/releases/download/v0.2.10/beads_map-0.2.10-py3-none-any.whl"
 uv tool uninstall beads-map
 ```
 
@@ -129,6 +132,6 @@ The terminal prints the exact local URL it opened. If the browser did not open, 
 
 ## 7. Development and quality
 
-The project is currently alpha-quality software. GitHub Actions keeps the fast Python test, build, and isolated wheel/CLI smoke job on Linux and runs a focused macOS confidence job against a pinned supported Beads CLI: inline JavaScript syntax, one real browser journey, and one disposable real-Beads repository. Browser logs, page source, and a screenshot are retained when that job fails. CI deliberately does not publish releases or deploy anything yet.
+The project is currently beta-quality software. GitHub Actions keeps the fast Python test, build, and isolated wheel/CLI smoke job on Linux and runs a focused macOS confidence job against a pinned supported Beads CLI: inline JavaScript syntax, one real browser journey, and one disposable real-Beads repository. Browser logs, page source, and a screenshot are retained when that job fails. Releases are published manually from a checked tag after both lanes pass; CI does not deploy the app.
 
 The detailed product record lives in [specification.md](docs/specification.md). Beads is the project tracker; use `bd ready` in a source checkout to see available work.
