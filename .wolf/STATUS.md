@@ -52,6 +52,7 @@
 - Added Beads Map 0.2.8 guided empty first run: a semantic, responsive three-step welcome keeps repository choice primary, explains graph exploration and the five-field edit boundary, and remains visible alongside actionable add failures.
 - Added Beads Map 0.2.9 local HTTP origin hardening: exact loopback Host and API Origin validation, a per-launch write capability, defensive response headers, documented residual risk, and live browser/real-Beads verification.
 - Added Beads Map 0.2.10 automated confidence checks: the fast Linux unit/build lane now validates inline JavaScript, while a parallel macOS 15 lane exercises empty-state, real-Beads loading, filtering, selection, details, and relationship context against checksum-pinned Beads 1.2.2 with failure diagnostics.
+- Published Beads Map 0.2.10 as the first invited external beta: annotated tag, immutable GitHub prerelease, attested wheel/source/checksum assets, reproducible tag workflow, fixed-version `uv tool` installation, and public-install verification all pass.
 - Created and visually verified the StepStone-branded eight-slide AI Engineering Fridays deck `presentation/When the plan outlives the session - v1.pptx`, including speaker notes, authentic Beads Map screenshots, and a three-minute deterministic demo runbook.
 - Revised the talk opening in `presentation/When the plan outlives the session - v2.pptx` around Steve Yegge's original Beads launch essay: 605 decaying Markdown plans, his issue-graph terminal screenshot, visible attribution, and an explicit historical-architecture caveat in the speaker notes.
 - Reworked the presentation opening in `presentation/When the plan outlives the session - v3.pptx`: the familiar Claude Code loop now opens the talk, Steve Yegge's complex-work example follows, and the exact “The Stages of AI Adoption” slide from the prior sprint review bridges into the session-boundary pressure points. The nine-slide deck, speaker notes, preview, and demo slide references are verified.
@@ -63,9 +64,7 @@
 
 ## 🚀 Next phase
 
-**Goal:** Publish the immutable external beta release tracked by `beads-map-l8m.3`; all implementation, onboarding, security, and automated-confidence prerequisites are complete.
-
-**Prepared locally:** Tag pushes now run the full Linux and macOS confidence lanes before producing a byte-reproducible wheel/sdist candidate and verified `SHA256SUMS`. Repository release immutability is enabled; review, commit, hosted verification, tag creation, and external publication remain pending.
+**Goal:** Gather focused external-beta feedback against immutable release `v0.2.10`; add follow-up work only for observed user friction, defects, or release-operability gaps.
 
 **Presentation:** Rehearse the 15-minute Beads talk, tighten the talk track from live timing, verify the “49 completed beads” evidence immediately before delivery, and choose the 2026-09-04 or 2026-09-18 slot.
 
