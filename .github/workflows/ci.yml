@@ -36,6 +36,9 @@ jobs:
           version: "0.12.9"
           enable-cache: true
 
+      - name: Check inline JavaScript syntax
+        run: node tests/check_inline_javascript.js
+
       - name: Run tests
         run: python -m unittest discover -s tests
 
@@ -53,3 +56,58 @@ jobs:
           wheels=("$DIST_DIR"/*.whl)
           test "${#wheels[@]}" -eq 1
           uv run --isolated --no-project --with "${wheels[0]}" beads-map --version
+
+  browser-confidence:
+    name: Browser journey with real Beads (macOS)
+    runs-on: macos-15
+    timeout-minutes: 15
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.11"
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
+        with:
+          version: "0.12.9"
+          enable-cache: true
+
+      - name: Install pinned supported Beads
+        env:
+          BD_ARCHIVE_SHA256: 2aa1245c666419900d2d6993a05049e92c40e0e601d19579cca5b07a7bb8021d
+          BD_VERSION: 1.2.2
+        run: |
+          set -euo pipefail
+          archive="$RUNNER_TEMP/beads.tar.gz"
+          install_dir="$RUNNER_TEMP/beads-bin"
+          curl --fail --location --silent --show-error --retry 3 \
+            --output "$archive" \
+            "https://github.com/gastownhall/beads/releases/download/v${BD_VERSION}/beads_${BD_VERSION}_darwin_arm64.tar.gz"
+          printf '%s  %s\n' "$BD_ARCHIVE_SHA256" "$archive" | shasum -a 256 --check
+          mkdir -p "$install_dir"
+          tar -xzf "$archive" -C "$install_dir"
+          chmod 0755 "$install_dir/bd"
+          echo "$install_dir" >> "$GITHUB_PATH"
+          export PATH="$install_dir:$PATH"
+          python -c "import beads_map; print('supported bd', '.'.join(map(str, beads_map.ensure_supported_bd())))"
+
+      - name: Run browser journey
+        env:
+          BROWSER_ARTIFACTS: ${{ runner.temp }}/beads-map-browser-artifacts
+        run: >-
+          uv run --isolated --no-project --with selenium==4.48.0
+          python tests/browser_journey.py --artifacts "$BROWSER_ARTIFACTS"
+
+      - name: Upload browser failure diagnostics
+        if: failure()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: browser-failure-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/beads-map-browser-artifacts
+          if-no-files-found: warn
+          retention-days: 7

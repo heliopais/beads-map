@@ -6,7 +6,7 @@ Beads Map is a local visual workspace for a single [Beads](https://github.com/ga
 
 ![Beads Map showing a repository dependency graph, filters, and the selected task details panel](docs/assets/beads-map-overview.jpg)
 
-*Beads Map 0.2.9 running against its own Beads repository. The app is local: the graph and selected task details stay on your computer.*
+*Beads Map 0.2.10 running against its own Beads repository. The app is local: the graph and selected task details stay on your computer.*
 
 ## 1. One-minute quickstart
 
@@ -129,6 +129,6 @@ The terminal prints the exact local URL it opened. If the browser did not open, 
 
 ## 7. Development and quality
 
-The project is currently alpha-quality software. GitHub Actions runs the Python test suite, builds the distribution, and performs an isolated wheel/CLI smoke test on pull requests and `main` pushes. It deliberately does not publish releases or deploy anything yet.
+The project is currently alpha-quality software. GitHub Actions keeps the fast Python test, build, and isolated wheel/CLI smoke job on Linux and runs a focused macOS confidence job against a pinned supported Beads CLI: inline JavaScript syntax, one real browser journey, and one disposable real-Beads repository. Browser logs, page source, and a screenshot are retained when that job fails. CI deliberately does not publish releases or deploy anything yet.
 
 The detailed product record lives in [specification.md](docs/specification.md). Beads is the project tracker; use `bd ready` in a source checkout to see available work.

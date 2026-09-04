@@ -27,7 +27,7 @@ except ImportError:  # pragma: no cover - Windows is not currently supported.
     fcntl = None
 
 
-__version__ = "0.2.9"
+__version__ = "0.2.10"
 BLOCKING_DEPENDENCIES = {"blocks", "conditional-blocks", "waits-for"}
 DISPLAYED_DEPENDENCIES = BLOCKING_DEPENDENCIES | {"discovered-from", "parent-child"}
 VIEW_STATES = {"completed", "in-progress", "ready", "blocked", "deferred"}

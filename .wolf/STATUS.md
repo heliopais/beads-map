@@ -2,7 +2,7 @@
 
 > Single source of truth for resuming work. Read this FIRST when starting a session.
 > Update this file at the end of every work phase so the next `/clear` resumes in 1 read.
-> Last updated: 2026-09-03
+> Last updated: 2026-09-04
 
 ---
 
@@ -51,6 +51,7 @@
 - Opened the five-child `beads-map-l8m` external-beta epic and completed its onboarding front door: the README now leads with an authentic product screenshot, an honest invited-beta audience and platform boundary, a three-step quickstart, local-data/edit safety, and focused troubleshooting.
 - Added Beads Map 0.2.8 guided empty first run: a semantic, responsive three-step welcome keeps repository choice primary, explains graph exploration and the five-field edit boundary, and remains visible alongside actionable add failures.
 - Added Beads Map 0.2.9 local HTTP origin hardening: exact loopback Host and API Origin validation, a per-launch write capability, defensive response headers, documented residual risk, and live browser/real-Beads verification.
+- Added Beads Map 0.2.10 automated confidence checks: the fast Linux unit/build lane now validates inline JavaScript, while a parallel macOS 15 lane exercises empty-state, real-Beads loading, filtering, selection, details, and relationship context against checksum-pinned Beads 1.2.2 with failure diagnostics.
 - Created and visually verified the StepStone-branded eight-slide AI Engineering Fridays deck `presentation/When the plan outlives the session - v1.pptx`, including speaker notes, authentic Beads Map screenshots, and a three-minute deterministic demo runbook.
 - Revised the talk opening in `presentation/When the plan outlives the session - v2.pptx` around Steve Yegge's original Beads launch essay: 605 decaying Markdown plans, his issue-graph terminal screenshot, visible attribution, and an explicit historical-architecture caveat in the speaker notes.
 - Reworked the presentation opening in `presentation/When the plan outlives the session - v3.pptx`: the familiar Claude Code loop now opens the talk, Steve Yegge's complex-work example follows, and the exact “The Stages of AI Adoption” slide from the prior sprint review bridges into the session-boundary pressure points. The nine-slide deck, speaker notes, preview, and demo slide references are verified.
@@ -62,7 +63,7 @@
 
 ## 🚀 Next phase
 
-**Goal:** Complete the external-beta children of `beads-map-l8m`; automated browser and real-Beads confidence checks are next, followed by the immutable beta release.
+**Goal:** Publish the immutable external beta release tracked by `beads-map-l8m.3`; all implementation, onboarding, security, and automated-confidence prerequisites are complete.
 
 **Presentation:** Rehearse the 15-minute Beads talk, tighten the talk track from live timing, verify the “49 completed beads” evidence immediately before delivery, and choose the 2026-09-04 or 2026-09-18 slot.
 

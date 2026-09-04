@@ -159,11 +159,11 @@ Ordinary tests must not depend on a live Beads database.
 - Fixture tests cover representative and malformed exports, missing dependency
   endpoints, unknown fields, missing or moved repositories, filters, long paths,
   and transient read failures.
-- Development-only browser smoke and performance tests exercise the real SVG
-  workspace through 1,000 nodes and 3,000 edges, including pan, zoom, selection,
-  filtering, path focus, repository switching, view restoration, metadata Save
-  and Cancel, stale conflict recovery, failure retention, and narrow layout.
-- A small optional integration suite may run against an installed supported `bd`.
+- A focused CI browser journey exercises the real frontend on the supported
+  macOS boundary, covering first-run, real graph loading, status filtering, node
+  selection, and details; failure diagnostics and screenshots remain downloadable.
+- A small isolated integration uses a pinned supported `bd` and a disposable
+  repository. Broader browser and scale checks remain development-only.
 
 ## Delivery order
 
