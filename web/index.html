@@ -3,6 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="beads-map-write-capability" content="__BEADS_MAP_WRITE_CAPABILITY__">
   <title>Beads Map</title>
   <style>
     :root {
@@ -803,6 +804,9 @@
     let bestEffortSnapshotHash = null;
 
     const el = id => document.getElementById(id);
+    const capabilityMeta = document.querySelector('meta[name="beads-map-write-capability"]');
+    const writeCapability = capabilityMeta?.content.startsWith('__') ? '' : capabilityMeta?.content || '';
+    capabilityMeta?.remove();
     const svgElement = (name, attributes = {}) => {
       const node = document.createElementNS(SVG, name);
       Object.entries(attributes).forEach(([key, value]) => node.setAttribute(key, value));
@@ -810,7 +814,12 @@
     };
 
     async function requestJSON(url, options = {}) {
-      const response = await fetch(url, { cache: 'no-store', ...options });
+      const method = (options.method || 'GET').toUpperCase();
+      const headers = new Headers(options.headers || {});
+      if (!['GET', 'HEAD'].includes(method) && writeCapability) {
+        headers.set('X-Beads-Map-Capability', writeCapability);
+      }
+      const response = await fetch(url, { cache: 'no-store', ...options, headers });
       const payload = await response.json();
       if (!response.ok) {
         const error = new Error(payload.error || 'Request failed');
@@ -1095,7 +1104,7 @@
       try {
         const payload = await requestJSON('/api/issues/update', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json', 'X-Beads-Map': '1' },
+          headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             repository: session.repository,
             issueId: session.issueId,
@@ -1167,7 +1176,7 @@
       try {
         await requestJSON('/api/view', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json', 'X-Beads-Map': '1' },
+          headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ path, view }),
         });
       } catch (error) {
@@ -2697,7 +2706,7 @@
       try {
         const payload = await requestJSON('/api/repositories/select', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json', 'X-Beads-Map': '1' },
+          headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ path }),
         });
         recoveryPath = null;
@@ -2730,7 +2739,7 @@
       try {
         const payload = await requestJSON('/api/repositories/locate', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json', 'X-Beads-Map': '1' },
+          headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ path: previous }),
         });
         if (payload.cancelled) return;
@@ -2755,7 +2764,6 @@
       try {
         const payload = await requestJSON('/api/repositories/pick', {
           method: 'POST',
-          headers: { 'X-Beads-Map': '1' },
         });
         if (payload.cancelled) return;
         renderCatalog(payload.catalog);
@@ -2781,7 +2789,7 @@
         const removingCurrentGraph = path === currentRepository;
         const catalog = await requestJSON('/api/repositories', {
           method: 'DELETE',
-          headers: { 'Content-Type': 'application/json', 'X-Beads-Map': '1' },
+          headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ path }),
         });
         renderCatalog(catalog);

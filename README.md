@@ -6,7 +6,7 @@ Beads Map is a local visual workspace for a single [Beads](https://github.com/ga
 
 ![Beads Map showing a repository dependency graph, filters, and the selected task details panel](docs/assets/beads-map-overview.jpg)
 
-*Beads Map 0.2.8 running against its own Beads repository. The app is local: the graph and selected task details stay on your computer.*
+*Beads Map 0.2.9 running against its own Beads repository. The app is local: the graph and selected task details stay on your computer.*
 
 ## 1. One-minute quickstart
 
@@ -53,7 +53,7 @@ beads-map /path/to/repository [/path/to/another/repository]
 
 Those repositories and their view preferences are remembered. Later, `beads-map` reopens the catalog; use the header selector to switch. **Add** opens the native macOS folder chooser, so a full path is not required. Missing, moved, unreadable, and invalid entries remain visible with a warning: select one to **Retry** it, **Locate** its replacement, or **Remove** only that catalog entry. A failed recovery keeps the current graph visible.
 
-The server listens only on your loopback interface. It prefers port 8765 and silently selects another free local port if that one is busy. Use `--no-browser` to avoid opening a browser or `--port 9000` to require one specific port:
+The server listens only on your loopback interface. It prefers port 8765 and silently selects another free local port if that one is busy. Every app request requires the exact local `Host`; API requests reject a different `Origin`, and writes require a new random capability on every launch. See [security.md](docs/security.md) for the threat model and honest residual limits. Use `--no-browser` to avoid opening a browser or `--port 9000` to require one specific port:
 
 ```bash
 beads-map --no-browser /path/to/repository

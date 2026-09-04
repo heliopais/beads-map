@@ -10,6 +10,7 @@ import hashlib
 import json
 import os
 import re
+import secrets
 import subprocess
 import sys
 import tempfile
@@ -26,7 +27,7 @@ except ImportError:  # pragma: no cover - Windows is not currently supported.
     fcntl = None
 
 
-__version__ = "0.2.8"
+__version__ = "0.2.9"
 BLOCKING_DEPENDENCIES = {"blocks", "conditional-blocks", "waits-for"}
 DISPLAYED_DEPENDENCIES = BLOCKING_DEPENDENCIES | {"discovered-from", "parent-child"}
 VIEW_STATES = {"completed", "in-progress", "ready", "blocked", "deferred"}
@@ -758,8 +759,52 @@ class SnapshotCoordinator:
 class AppHandler(BaseHTTPRequestHandler):
     catalog: RepositoryCatalog
     snapshots: SnapshotCoordinator
+    server_version = "BeadsMap"
+    sys_version = ""
+
+    def _authorize_request(self, *, state_changing: bool = False) -> bool:
+        host_values = self.headers.get_all("Host", failobj=[])
+        port = self.server.server_address[1]
+        allowed_hosts = {f"127.0.0.1:{port}", f"localhost:{port}"}
+        if len(host_values) != 1 or host_values[0].strip().lower() not in allowed_hosts:
+            self._send_json(400, {"error": "Request Host is not this local Beads Map server."})
+            return False
+
+        path = urlsplit(self.path).path
+        if not path.startswith("/api/"):
+            return True
+
+        host = host_values[0].strip().lower()
+        origin_values = self.headers.get_all("Origin", failobj=[])
+        if len(origin_values) > 1:
+            self._send_json(403, {"error": "Cross-origin API requests are not allowed."})
+            return False
+        origin = origin_values[0].strip().lower() if origin_values else None
+        if origin is not None and origin != f"http://{host}":
+            self._send_json(403, {"error": "Cross-origin API requests are not allowed."})
+            return False
+
+        if not state_changing:
+            return True
+        if origin is None:
+            self._send_json(403, {"error": "State changes require a same-origin browser request."})
+            return False
+
+        supplied = self.headers.get("X-Beads-Map-Capability", "")
+        expected = getattr(self.server, "write_capability", "")
+        if not expected or not secrets.compare_digest(supplied, expected):
+            message = (
+                "Metadata update was not authorized."
+                if path == "/api/issues/update"
+                else "Local preference update was not authorized."
+            )
+            self._send_json(403, {"error": message})
+            return False
+        return True
 
     def do_GET(self) -> None:  # noqa: N802 - BaseHTTPRequestHandler API
+        if not self._authorize_request():
+            return
         path = urlsplit(self.path).path
         if path == "/api/graph":
             self._serve_graph()
@@ -777,15 +822,9 @@ class AppHandler(BaseHTTPRequestHandler):
         self.send_error(404)
 
     def do_POST(self) -> None:  # noqa: N802 - BaseHTTPRequestHandler API
-        path = urlsplit(self.path).path
-        if path.startswith("/api/") and self.headers.get("X-Beads-Map") != "1":
-            message = (
-                "Metadata update was not authorized."
-                if path == "/api/issues/update"
-                else "Local preference update was not authorized."
-            )
-            self._send_json(403, {"error": message})
+        if not self._authorize_request(state_changing=True):
             return
+        path = urlsplit(self.path).path
         if path == "/api/repositories/pick":
             try:
                 repository = pick_repository()
@@ -903,11 +942,10 @@ class AppHandler(BaseHTTPRequestHandler):
             )
 
     def do_DELETE(self) -> None:  # noqa: N802 - BaseHTTPRequestHandler API
+        if not self._authorize_request(state_changing=True):
+            return
         if urlsplit(self.path).path != "/api/repositories":
             self.send_error(404)
-            return
-        if self.headers.get("X-Beads-Map") != "1":
-            self._send_json(403, {"error": "Local preference update was not authorized."})
             return
         try:
             payload = self._read_json()
@@ -919,6 +957,13 @@ class AppHandler(BaseHTTPRequestHandler):
             self._send_json(200, self.catalog.payload())
         except (BeadsError, OSError, ValueError) as error:
             self._send_json(400, {"error": str(error)})
+
+    def do_OPTIONS(self) -> None:  # noqa: N802 - BaseHTTPRequestHandler API
+        if not self._authorize_request(state_changing=True):
+            return
+        self.send_response(405)
+        self.send_header("Allow", "GET, POST, DELETE")
+        self.end_headers()
 
     def _serve_graph(self) -> None:
         repository = self.catalog.selected()
@@ -950,11 +995,13 @@ class AppHandler(BaseHTTPRequestHandler):
 
     def _serve_file(self, path: Path, content_type: str) -> None:
         body = path.read_bytes()
+        if path == WEB_ROOT / "index.html":
+            capability = getattr(self.server, "write_capability", "")
+            body = body.replace(b"__BEADS_MAP_WRITE_CAPABILITY__", capability.encode("ascii"), 1)
         try:
             self.send_response(200)
             self.send_header("Content-Type", content_type)
             self.send_header("Content-Length", str(len(body)))
-            self.send_header("Cache-Control", "no-store")
             self.end_headers()
             self.wfile.write(body)
         except (BrokenPipeError, ConnectionResetError):
@@ -966,7 +1013,6 @@ class AppHandler(BaseHTTPRequestHandler):
             self.send_response(status)
             self.send_header("Content-Type", "application/json; charset=utf-8")
             self.send_header("Content-Length", str(len(body)))
-            self.send_header("Cache-Control", "no-store")
             self.end_headers()
             self.wfile.write(body)
         except (BrokenPipeError, ConnectionResetError):
@@ -974,6 +1020,21 @@ class AppHandler(BaseHTTPRequestHandler):
 
     def log_message(self, format: str, *args: object) -> None:
         print(f"[beads-map] {format % args}")
+
+    def end_headers(self) -> None:
+        self.send_header("Cache-Control", "no-store")
+        self.send_header("Content-Security-Policy", (
+            "default-src 'none'; connect-src 'self'; img-src 'self' data:; "
+            "script-src 'unsafe-inline'; style-src 'unsafe-inline'; "
+            "base-uri 'none'; form-action 'none'; frame-ancestors 'none'; object-src 'none'"
+        ))
+        self.send_header("Cross-Origin-Resource-Policy", "same-origin")
+        self.send_header("Permissions-Policy", "camera=(), geolocation=(), microphone=(), payment=(), usb=()")
+        self.send_header("Referrer-Policy", "no-referrer")
+        self.send_header("Vary", "Origin")
+        self.send_header("X-Content-Type-Options", "nosniff")
+        self.send_header("X-Frame-Options", "DENY")
+        super().end_headers()
 
 
 def port_number(value: str) -> int:
@@ -1006,14 +1067,16 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
 
 def create_server(port: int, *, strict: bool) -> ThreadingHTTPServer:
     try:
-        return ThreadingHTTPServer(("127.0.0.1", port), AppHandler)
+        server = ThreadingHTTPServer(("127.0.0.1", port), AppHandler)
     except OSError as error:
         if strict:
             raise BeadsError(f"Could not use explicit port {port}: {error}") from error
-    try:
-        return ThreadingHTTPServer(("127.0.0.1", 0), AppHandler)
-    except OSError as error:
-        raise BeadsError(f"Could not start a local server: {error}") from error
+        try:
+            server = ThreadingHTTPServer(("127.0.0.1", 0), AppHandler)
+        except OSError as fallback_error:
+            raise BeadsError(f"Could not start a local server: {fallback_error}") from fallback_error
+    server.write_capability = secrets.token_urlsafe(32)
+    return server
 
 
 def main(argv: Sequence[str] | None = None) -> int:

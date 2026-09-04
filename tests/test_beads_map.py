@@ -60,6 +60,98 @@ class ServerTests(unittest.TestCase):
             with self.assertRaisesRegex(beads_map.BeadsError, "explicit port"):
                 beads_map.create_server(port, strict=True)
 
+    def test_each_server_has_an_independent_write_capability(self) -> None:
+        first = beads_map.create_server(0, strict=True)
+        second = beads_map.create_server(0, strict=True)
+        self.addCleanup(first.server_close)
+        self.addCleanup(second.server_close)
+
+        self.assertGreaterEqual(len(first.write_capability), 32)
+        self.assertNotEqual(first.write_capability, second.write_capability)
+
+
+class LocalHttpSecurityTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.temporary_directory = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temporary_directory.cleanup)
+        catalog = beads_map.RepositoryCatalog(
+            Path(self.temporary_directory.name) / "catalog.json"
+        )
+        beads_map.AppHandler.catalog = catalog
+        beads_map.AppHandler.snapshots = beads_map.SnapshotCoordinator(
+            lambda repository: {}
+        )
+        self.server = beads_map.create_server(0, strict=True)
+        self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
+        self.thread.start()
+        self.addCleanup(self.server.server_close)
+        self.addCleanup(self.server.shutdown)
+
+    @property
+    def port(self) -> int:
+        return self.server.server_address[1]
+
+    def get(self, path: str, *, host: str | None = None, origin: str | None = None):
+        headers = {}
+        if host is not None:
+            headers["Host"] = host
+        if origin is not None:
+            headers["Origin"] = origin
+        request = Request(f"http://127.0.0.1:{self.port}{path}", headers=headers)
+        try:
+            return urlopen(request, timeout=2)
+        except HTTPError as error:
+            return error
+
+    def test_index_receives_ephemeral_capability_and_defensive_headers(self) -> None:
+        with self.get("/") as response:
+            body = response.read().decode("utf-8")
+            headers = response.headers
+
+        self.assertNotIn("__BEADS_MAP_WRITE_CAPABILITY__", body)
+        self.assertIn(self.server.write_capability, body)
+        self.assertEqual(headers["Cache-Control"], "no-store")
+        self.assertEqual(headers["Cross-Origin-Resource-Policy"], "same-origin")
+        self.assertEqual(headers["Referrer-Policy"], "no-referrer")
+        self.assertEqual(headers["X-Content-Type-Options"], "nosniff")
+        self.assertEqual(headers["X-Frame-Options"], "DENY")
+        self.assertIn("frame-ancestors 'none'", headers["Content-Security-Policy"])
+
+    def test_host_header_must_name_the_loopback_app(self) -> None:
+        response = self.get("/api/repositories", host=f"attacker.example:{self.port}")
+        self.assertEqual(response.status, 400)
+        self.assertIn("Request Host", json.loads(response.read())["error"])
+
+        with self.get("/api/repositories", host=f"localhost:{self.port}") as response:
+            self.assertEqual(response.status, 200)
+
+    def test_api_rejects_cross_origin_but_allows_non_browser_reads(self) -> None:
+        response = self.get(
+            "/api/repositories",
+            origin="https://attacker.example",
+        )
+        self.assertEqual(response.status, 403)
+        self.assertIn("Cross-origin", json.loads(response.read())["error"])
+
+        with self.get("/api/repositories") as response:
+            self.assertEqual(response.status, 200)
+
+    def test_cross_origin_preflight_is_rejected_without_cors_permission(self) -> None:
+        request = Request(
+            f"http://127.0.0.1:{self.port}/api/issues/update",
+            method="OPTIONS",
+            headers={
+                "Origin": "https://attacker.example",
+                "Access-Control-Request-Method": "POST",
+                "Access-Control-Request-Headers": "x-beads-map-capability",
+            },
+        )
+        with self.assertRaises(HTTPError) as raised:
+            urlopen(request, timeout=2)
+
+        self.assertEqual(raised.exception.code, 403)
+        self.assertIsNone(raised.exception.headers.get("Access-Control-Allow-Origin"))
+
 
 class GraphNormalizationTests(unittest.TestCase):
     def test_work_definition_fields_and_comments_are_normalized_safely(self) -> None:
@@ -517,18 +609,37 @@ class MetadataUpdateEndpointTests(unittest.TestCase):
         self.server = beads_map.ThreadingHTTPServer(
             ("127.0.0.1", 0), beads_map.AppHandler
         )
+        self.server.write_capability = "test-write-capability"
         self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
         self.thread.start()
         self.addCleanup(self.server.server_close)
         self.addCleanup(self.server.shutdown)
 
-    def request(self, payload: dict, *, authorized: bool = True) -> tuple[int, dict]:
-        return self.request_bytes(json.dumps(payload).encode("utf-8"), authorized=authorized)
+    def request(
+        self,
+        payload: dict,
+        *,
+        authorized: bool = True,
+        include_origin: bool = True,
+    ) -> tuple[int, dict]:
+        return self.request_bytes(
+            json.dumps(payload).encode("utf-8"),
+            authorized=authorized,
+            include_origin=include_origin,
+        )
 
-    def request_bytes(self, body: bytes, *, authorized: bool = True) -> tuple[int, dict]:
+    def request_bytes(
+        self,
+        body: bytes,
+        *,
+        authorized: bool = True,
+        include_origin: bool = True,
+    ) -> tuple[int, dict]:
         headers = {"Content-Type": "application/json"}
         if authorized:
-            headers["X-Beads-Map"] = "1"
+            headers["X-Beads-Map-Capability"] = self.server.write_capability
+        if include_origin:
+            headers["Origin"] = f"http://127.0.0.1:{self.server.server_address[1]}"
         request = Request(
             f"http://127.0.0.1:{self.server.server_address[1]}/api/issues/update",
             data=body,
@@ -559,6 +670,23 @@ class MetadataUpdateEndpointTests(unittest.TestCase):
     def test_endpoint_requires_header_and_selected_repository(self) -> None:
         status, _ = self.request(self.payload(), authorized=False)
         self.assertEqual(status, 403)
+
+        status, _ = self.request(self.payload(), include_origin=False)
+        self.assertEqual(status, 403)
+
+        request = Request(
+            f"http://127.0.0.1:{self.server.server_address[1]}/api/issues/update",
+            data=json.dumps(self.payload()).encode("utf-8"),
+            method="POST",
+            headers={
+                "Content-Type": "application/json",
+                "Origin": f"http://127.0.0.1:{self.server.server_address[1]}",
+                "X-Beads-Map-Capability": "wrong-capability",
+            },
+        )
+        with self.assertRaises(HTTPError) as raised:
+            urlopen(request, timeout=2)
+        self.assertEqual(raised.exception.code, 403)
 
         payload = self.payload()
         payload["repository"] = str(ROOT)
